@@ -1,0 +1,14 @@
+{
+  "name": "triptrail-natpac-survey",
+  "version": "2.0.0",
+  "description": "TripTrail & NATPAC Mobile Travel Survey Platform (SIH 2025)",
+  "type": "module",
+  "scripts": {
+    "start": "python run.py",
+    "server": "python run.py",
+    "dev": "python run.py",
+    "backend": "python run.py",
+    "test": "python -m unittest discover tests"
+  },
+  "dependencies": {}
+}

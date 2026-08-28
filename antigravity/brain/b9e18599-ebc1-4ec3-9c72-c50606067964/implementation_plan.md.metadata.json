@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for migrating TripTrail database to a Python backend, integrating real-world tourism APIs, preserving existing AI route planner while enhancing it with trip parsing and itinerary assistance, and fully implementing the SIH 2025 / NATPAC Government of Kerala mobile travel survey and transport planning requirements from the reference image.",
+  "updatedAt": "2026-08-28T16:54:36.434083500Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

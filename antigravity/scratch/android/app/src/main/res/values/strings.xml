@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TripTrail</string>
+    <string name="title_activity_main">TripTrail</string>
+    <string name="package_name">com.triptrail.app</string>
+    <string name="custom_url_scheme">com.triptrail.app</string>
+</resources>
