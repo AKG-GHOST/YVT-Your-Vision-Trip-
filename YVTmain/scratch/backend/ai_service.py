@@ -190,7 +190,7 @@ async def plan_route_ai(prompt: str) -> Dict[str, Any]:
             "distance": dist_est,
             "duration": dur_est,
             "mapsUrl": maps_url,
-            "message": "Using local route estimates; add GOOGLE_MAPS_API_KEY for live routing."
+            "message": ""
         }
 
     try:
@@ -338,36 +338,189 @@ async def parse_trip_from_text(user_text: str) -> Dict[str, Any]:
     }
 
 async def generate_smart_itinerary(dest_name: str, days: int = 3, budget: str = "moderate", style: str = "balanced") -> Dict[str, Any]:
+    from backend.tourism_service import get_destination_by_name, fetch_and_cache_live_destination
+
     dest_clean = dest_name.strip().title()
-    daily_plans = []
-    activities_pool = [
-        ("Heritage & Sightseeing", "Morning visit to historic landmark, royal palace or cultural museum.", "Local ethnic restaurant sampling traditional thali and regional delicacies.", "Sunset viewpoint visit, scenic lake walk or waterfront promenade.", ["Kerala Sadya", "Appam with Stew", "Fresh Tropical Juices"], "Kochi Metro & Electric Ferry / Auto"),
-        ("Nature, Backwaters & Eco-trails", "Early morning eco-walk through lush tea estates, backwater canals or botanical gardens.", "Traditional houseboat lunch or river-side fish fry tasting.", "Village craft tour, spice plantation walk or wildlife watch.", ["Karimeen Pollichathu", "Kuttanadan Duck Roast", "Tender Coconut"], "KSRTC Bus & Shikara Boat"),
-        ("Adventures & Culture", "Trekking to scenic hilltop, viewpoint or waterfall cascade.", "Authentic spice market exploration and street food tasting.", "Evening classical Kathakali dance or martial arts show (Kalaripayattu).", ["Malabar Biryani", "Pazham Pori", "Cardamom Filter Coffee"], "Public Transport & Walking Tour"),
-        ("Relaxation & Coastal Breezes", "Beach morning relaxation, yoga session and coastal cliff stroll.", "Seafood shack dining with catch-of-the-day fish.", "Lighthouse panoramic views and souvenir shopping for handicrafts.", ["Fish Curry Meals", "Tapioca with Chilli dip", "Local Banana Chips"], "Cycle Rental & Auto-rickshaw")
-    ]
-    for d in range(1, min(days + 1, 8)):
-        pool_idx = (d - 1) % len(activities_pool)
-        theme, morn, aft, eve, foods, trans = activities_pool[pool_idx]
-        daily_plans.append({
-            "day": d,
-            "theme": f"Day {d}: {theme} in {dest_clean}",
-            "morning": f"{morn} (9:00 AM - 1:00 PM)",
-            "afternoon": f"{aft} (1:00 PM - 5:00 PM)",
-            "evening": f"{eve} (5:00 PM - 8:30 PM)",
-            "food_recommendations": foods,
-            "transport_mode": trans
-        })
-    budget_estimate = f"₹{days * 2800:,} - ₹{days * 4500:,} (Estimated for {days} days)"
-    if budget == "luxury":
-        budget_estimate = f"₹{days * 8500:,} - ₹{days * 16000:,} (Luxury 5-Star Experience)"
-    elif budget == "budget":
-        budget_estimate = f"₹{days * 1200:,} - ₹{days * 2200:,} (Backpacker / Budget)"
-    return {
-        "destination": dest_clean,
-        "days": days,
-        "summary": f"Custom {days}-day travel itinerary for {dest_clean} curated with local Kerala cuisine, sightseeing, eco-activities, and sustainable transport modes.",
-        "daily_plan": daily_plans,
-        "estimated_budget": budget_estimate,
-        "best_time": "October to March (Pleasant Weather & Cultural Festivities)"
-    }
+    stops = [s.strip() for s in re.split(r'->|→|,', dest_clean) if s.strip()]
+    
+    if len(stops) >= 2:
+        stops_data = []
+        for s in stops:
+            d_info = get_destination_by_name(s)
+            if not d_info:
+                try:
+                    d_info = await fetch_and_cache_live_destination(s)
+                except Exception as ex:
+                    print(f"Failed to fetch live info for stop {s}: {ex}")
+            if d_info:
+                stops_data.append(d_info)
+            else:
+                stops_data.append({
+                    "name": s,
+                    "state_region": "Kerala",
+                    "category": "Travel Stop",
+                    "description": f"{s} is a beautiful stop along the travel corridor.",
+                    "food_cuisine": ["Kerala Sadya", "Appam with Stew", "Fresh Tropical Juices"],
+                    "attractions": [f"{s} Heritage Center", f"{s} Botanical Walk", f"{s} Scenic Viewpoint"],
+                    "activities": [f"Sightseeing in {s}"],
+                    "ratings": 4.5,
+                    "approx_cost_per_day": 2500.0,
+                    "best_season": "October to March",
+                    "weather_summary": "Pleasant tropical weather"
+                })
+
+        daily_plans = []
+        for d in range(1, min(days + 1, 8)):
+            stop_idx = min(int((d - 1) * len(stops_data) / days), len(stops_data) - 1)
+            stop_record = stops_data[stop_idx]
+            
+            next_stop_idx = min(int(d * len(stops_data) / days), len(stops_data) - 1)
+            is_transit_day = (next_stop_idx != stop_idx)
+            
+            foods = stop_record.get("food_cuisine", [])
+            if not isinstance(foods, list):
+                foods = ["Kerala Sadya", "Local Cuisine"]
+            attractions = stop_record.get("attractions", [])
+            if not isinstance(attractions, list):
+                attractions = ["Local Landmarks", "Scenic Attractions"]
+            activities = stop_record.get("activities", [])
+            if not isinstance(activities, list):
+                activities = ["Sightseeing"]
+
+            morn = f"Explore {attractions[0] if len(attractions) > 0 else 'scenic landmarks'} and enjoy local morning views."
+            aft = f"Visit {attractions[1] if len(attractions) > 1 else 'popular destinations'} and have lunch sampling {foods[0] if len(foods) > 0 else 'specialties'}."
+            
+            if is_transit_day:
+                eve = f"Conclude visits in {stop_record['name']} and transfer to {stops_data[next_stop_idx]['name']}."
+                trans = f"Drive / Transit from {stop_record['name']} to {stops_data[next_stop_idx]['name']}"
+            else:
+                eve = f"Relax with {activities[0] if len(activities) > 0 else 'evening leisure activities'} followed by dinner."
+                trans = f"Local transport in {stop_record['name']}"
+
+            daily_plans.append({
+                "day": d,
+                "theme": f"Day {d}: Discovering {stop_record['name']}",
+                "morning": f"{morn} (9:00 AM - 1:00 PM)",
+                "afternoon": f"{aft} (1:00 PM - 5:00 PM)",
+                "evening": f"{eve} (5:00 PM - 8:30 PM)",
+                "food_recommendations": foods[:3],
+                "transport_mode": trans
+            })
+
+        avg_cost_per_day = sum(r.get("approx_cost_per_day", 2500.0) for r in stops_data) / len(stops_data)
+        
+        if budget == "luxury":
+            multiplier = 3.5
+            tier_desc = "Luxury 5-Star Experience"
+        elif budget == "budget":
+            multiplier = 0.65
+            tier_desc = "Backpacker / Budget"
+        else:
+            multiplier = 1.2
+            tier_desc = "Moderate Comfort"
+
+        base_est = avg_cost_per_day * days * multiplier
+        budget_estimate = f"₹{int(base_est * 0.85):,} - ₹{int(base_est * 1.15):,} ({tier_desc})"
+        
+        best_seasons = [r.get("best_season", "October to March") for r in stops_data]
+        best_time = ", ".join(list(dict.fromkeys(best_seasons))[:2])
+
+        route_description = " ➔ ".join(stops)
+        return {
+            "destination": route_description,
+            "days": days,
+            "summary": f"Custom {days}-day travel itinerary synchronized with your planned route stops ({route_description}). This journey covers the region's best sightseeing spots, culinary specialties, and transport options.",
+            "daily_plan": daily_plans,
+            "estimated_budget": budget_estimate,
+            "best_time": best_time
+        }
+        
+    else:
+        # Single destination logic (optimized with database/live lookup if available)
+        d_info = get_destination_by_name(dest_clean)
+        if not d_info:
+            try:
+                d_info = await fetch_and_cache_live_destination(dest_clean)
+            except Exception as ex:
+                print(f"Failed to fetch live info for single destination {dest_clean}: {ex}")
+                
+        if d_info:
+            foods = d_info.get("food_cuisine", [])
+            attractions = d_info.get("attractions", [])
+            activities = d_info.get("activities", [])
+            
+            # Map activities to days
+            daily_plans = []
+            for d in range(1, min(days + 1, 8)):
+                morn_act = attractions[(d-1)%len(attractions)] if attractions else "Explore local landmarks"
+                aft_act = activities[(d-1)%len(activities)] if activities else "Sightseeing walk"
+                eve_act = attractions[(d)%len(attractions)] if len(attractions) > 1 else "Relax and dine locally"
+                
+                daily_plans.append({
+                    "day": d,
+                    "theme": f"Day {d}: Exploring {dest_clean}",
+                    "morning": f"Visit {morn_act} and capture scenic morning views. (9:00 AM - 1:00 PM)",
+                    "afternoon": f"Enjoy {aft_act} followed by lunch sampling local favorites. (1:00 PM - 5:00 PM)",
+                    "evening": f"Venture out to {eve_act} and conclude with dinner. (5:00 PM - 8:30 PM)",
+                    "food_recommendations": foods[:3] if foods else ["Traditional Meals"],
+                    "transport_mode": "Local Cab / Auto-rickshaw"
+                })
+                
+            approx_cost = d_info.get("approx_cost_per_day", 2500.0)
+            if budget == "luxury":
+                multiplier = 3.5
+                tier_desc = "Luxury 5-Star Experience"
+            elif budget == "budget":
+                multiplier = 0.65
+                tier_desc = "Backpacker / Budget"
+            else:
+                multiplier = 1.2
+                tier_desc = "Moderate Comfort"
+                
+            base_est = approx_cost * days * multiplier
+            budget_estimate = f"₹{int(base_est * 0.85):,} - ₹{int(base_est * 1.15):,} ({tier_desc})"
+            best_time = d_info.get("best_season", "October to March")
+            
+            return {
+                "destination": dest_clean,
+                "days": days,
+                "summary": f"Custom {days}-day travel itinerary for {dest_clean} covering top sights, local specialties, and cozy stays.",
+                "daily_plan": daily_plans,
+                "estimated_budget": budget_estimate,
+                "best_time": best_time
+            }
+            
+        else:
+            # Full fallback to activities pool if database lookup completely fails
+            daily_plans = []
+            activities_pool = [
+                ("Heritage & Sightseeing", "Morning visit to historic landmark, royal palace or cultural museum.", "Local ethnic restaurant sampling traditional thali and regional delicacies.", "Sunset viewpoint visit, scenic lake walk or waterfront promenade.", ["Kerala Sadya", "Appam with Stew", "Fresh Tropical Juices"], "Kochi Metro & Electric Ferry / Auto"),
+                ("Nature, Backwaters & Eco-trails", "Early morning eco-walk through lush tea estates, backwater canals or botanical gardens.", "Traditional houseboat lunch or river-side fish fry tasting.", "Village craft tour, spice plantation walk or wildlife watch.", ["Karimeen Pollichathu", "Kuttanadan Duck Roast", "Tender Coconut"], "KSRTC Bus & Shikara Boat"),
+                ("Adventures & Culture", "Trekking to scenic hilltop, viewpoint or waterfall cascade.", "Authentic spice market exploration and street food tasting.", "Evening classical Kathakali dance or martial arts show (Kalaripayattu).", ["Malabar Biryani", "Pazham Pori", "Cardamom Filter Coffee"], "Public Transport & Walking Tour"),
+                ("Relaxation & Coastal Breezes", "Beach morning relaxation, yoga session and coastal cliff stroll.", "Seafood shack dining with catch-of-the-day fish.", "Lighthouse panoramic views and souvenir shopping for handicrafts.", ["Fish Curry Meals", "Tapioca with Chilli dip", "Local Banana Chips"], "Cycle Rental & Auto-rickshaw")
+            ]
+            for d in range(1, min(days + 1, 8)):
+                pool_idx = (d - 1) % len(activities_pool)
+                theme, morn, aft, eve, foods, trans = activities_pool[pool_idx]
+                daily_plans.append({
+                    "day": d,
+                    "theme": f"Day {d}: {theme} in {dest_clean}",
+                    "morning": f"{morn} (9:00 AM - 1:00 PM)",
+                    "afternoon": f"{aft} (1:00 PM - 5:00 PM)",
+                    "evening": f"{eve} (5:00 PM - 8:30 PM)",
+                    "food_recommendations": foods,
+                    "transport_mode": trans
+                })
+            budget_estimate = f"₹{days * 2800:,} - ₹{days * 4500:,} (Estimated for {days} days)"
+            if budget == "luxury":
+                budget_estimate = f"₹{days * 8500:,} - ₹{days * 16000:,} (Luxury 5-Star Experience)"
+            elif budget == "budget":
+                budget_estimate = f"₹{days * 1200:,} - ₹{days * 2200:,} (Backpacker / Budget)"
+            return {
+                "destination": dest_clean,
+                "days": days,
+                "summary": f"Custom {days}-day travel itinerary for {dest_clean} curated with local Kerala cuisine, sightseeing, eco-activities, and sustainable transport modes.",
+                "daily_plan": daily_plans,
+                "estimated_budget": budget_estimate,
+                "best_time": "October to March (Pleasant Weather & Cultural Festivities)"
+            }

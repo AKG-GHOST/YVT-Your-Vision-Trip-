@@ -106,6 +106,18 @@ class TestTripTrailNATPAC(unittest.TestCase):
         self.assertEqual(data['destination'], 'Munnar')
         self.assertEqual(len(data['daily_plan']), 3)
 
+    def test_05b_ai_itinerary_multistop(self):
+        res = self.client.post('/api/ai/itinerary', json={
+            'destination': 'Thiruvananthapuram -> Alappuzha -> Kochi -> Munnar',
+            'days': 4,
+            'budget': 'moderate'
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIn('Thiruvananthapuram', data['destination'])
+        self.assertIn('Munnar', data['destination'])
+        self.assertEqual(len(data['daily_plan']), 4)
+
     def test_06_tourism_destinations(self):
         res = self.client.get('/api/tourism/destinations')
         self.assertEqual(res.status_code, 200)

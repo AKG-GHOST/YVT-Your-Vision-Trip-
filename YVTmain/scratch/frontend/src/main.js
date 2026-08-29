@@ -501,7 +501,33 @@ function initAIRoutePlanner() {
       if (stopsList) {
         stopsList.innerHTML = (data.stops || []).map((s, idx) => `<span class="stop-chip">${idx + 1}. ${s}</span>`).join(" ");
       }
-      (document.getElementById("route-note-msg")).textContent = data.message || "";
+      
+      const noteMsg = document.getElementById("route-note-msg");
+      if (noteMsg) {
+        noteMsg.textContent = data.message || "";
+        if (!data.message) {
+          noteMsg.classList.add("hidden");
+        } else {
+          noteMsg.classList.remove("hidden");
+        }
+      }
+
+      // Synchronize with AI Tourism Itinerary
+      if (data.stops && data.stops.length > 0) {
+        const destSelect = document.getElementById("itinerary-dest-select");
+        if (destSelect) {
+          let routeOpt = destSelect.querySelector('option[value="planned-route"]');
+          if (!routeOpt) {
+            routeOpt = document.createElement("option");
+            routeOpt.value = "planned-route";
+            destSelect.insertBefore(routeOpt, destSelect.firstChild);
+          }
+          routeOpt.textContent = `📍 Planned Route: ${data.stops.join(" ➔ ")}`;
+          routeOpt.dataset.routeStops = JSON.stringify(data.stops);
+          destSelect.value = "planned-route";
+        }
+      }
+
       const mapsLink = document.getElementById("route-maps-link");
       if (mapsLink) mapsLink.href = data.mapsUrl || "#";
     } catch (e) {
@@ -522,12 +548,24 @@ function initAIItinerary() {
   if (!btn || !destSelect || !resultBox) return;
   btn.addEventListener("click", async () => {
     btn.textContent = "Curating Itinerary... ✨";
+    let destVal = destSelect.value;
+    if (destVal === "planned-route") {
+      const routeOpt = destSelect.querySelector('option[value="planned-route"]');
+      if (routeOpt && routeOpt.dataset.routeStops) {
+        try {
+          const stopsArr = JSON.parse(routeOpt.dataset.routeStops);
+          destVal = stopsArr.join(" -> ");
+        } catch (e) {
+          console.error("Error parsing route stops", e);
+        }
+      }
+    }
     try {
       const res = await fetch("/api/ai/itinerary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          destination: destSelect.value,
+          destination: destVal,
           days: parseInt(daysSelect.value) || 3,
           budget: budgetSelect.value,
         }),
@@ -609,7 +647,7 @@ function renderDestinations(dests) {
           </div>
           <div class="dest-footer">
             <span class="dest-price">₹${d.approx_cost_per_day || 2500}/day</span>
-            <span style="color: var(--primary); font-weight: 600;">View Details & APIs ➔</span>
+            <span style="color: var(--primary); font-weight: 600;">View Details ➔</span>
           </div>
         </div>
       </div>
