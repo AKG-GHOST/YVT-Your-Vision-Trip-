@@ -1,4 +1,3 @@
-# Build and deploy the actual web frontend from the nested app directory.
 name: Deploy TripTrail frontend to GitHub Pages
 
 on:
@@ -25,16 +24,10 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Build Jekyll site from frontend source
-        uses: actions/jekyll-build-pages@v1
-        with:
-          source: ./YVTmain/scratch/frontend
-          destination: ./_site
-
-      - name: Upload Pages artifact
+      - name: Upload static site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./_site
+          path: ./YVTmain/scratch/frontend
 
   deploy:
     environment:
