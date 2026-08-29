@@ -1,3 +1,15 @@
+
+def safe_json_loads(val, default=None):
+    if default is None:
+        default = []
+    if not val:
+        return default
+    if isinstance(val, (list, dict)):
+        return val
+    try:
+        return json.loads(val)
+    except Exception:
+        return default
 import json
 import sqlite3
 import httpx
@@ -53,14 +65,19 @@ async def geocode_place_osm(query: str) -> Optional[Dict[str, Any]]:
                 NOMINATIM_URL,
                 params={"q": query, "format": "json", "limit": 1, "addressdetails": 1}
             )
-            if res.status_code == 200 and res.json():
-                item = res.json()[0]
-                return {
-                    "name": item.get("display_name", query),
-                    "lat": float(item.get("lat", 0.0)),
-                    "lng": float(item.get("lon", 0.0)),
-                    "type": item.get("type", "tourism")
-                }
+            if res.status_code == 200:
+                try:
+                    res_j = res.json()
+                    if res_j and isinstance(res_j, list) and len(res_j) > 0:
+                        item = res_j[0]
+                        return {
+                            "name": item.get("display_name", query),
+                            "lat": float(item.get("lat", 0.0)),
+                            "lng": float(item.get("lon", 0.0)),
+                            "type": item.get("type", "tourism")
+                        }
+                except Exception as ex:
+                    print(f"Geocode JSON decode error: {ex}")
     except Exception as e:
         print(f"Geocode place error: {e}")
     return None
@@ -148,10 +165,10 @@ def get_all_destinations() -> List[Dict[str, Any]]:
         result = []
         for r in rows:
             d = dict(r)
-            d["food_cuisine"] = json.loads(d["food_cuisine"]) if isinstance(d["food_cuisine"], str) else d["food_cuisine"]
-            d["attractions"] = json.loads(d["attractions"]) if isinstance(d["attractions"], str) else d["attractions"]
-            d["hotels"] = json.loads(d["hotels"]) if isinstance(d["hotels"], str) else d["hotels"]
-            d["activities"] = json.loads(d["activities"]) if isinstance(d["activities"], str) else d["activities"]
+            d["food_cuisine"] = safe_json_loads(d["food_cuisine"], [])
+            d["attractions"] = safe_json_loads(d["attractions"], [])
+            d["hotels"] = safe_json_loads(d["hotels"], [])
+            d["activities"] = safe_json_loads(d["activities"], [])
             result.append(d)
         return result
 
@@ -163,10 +180,10 @@ def get_destination_by_name(name: str) -> Optional[Dict[str, Any]]:
         if not row:
             return None
         d = dict(row)
-        d["food_cuisine"] = json.loads(d["food_cuisine"]) if isinstance(d["food_cuisine"], str) else d["food_cuisine"]
-        d["attractions"] = json.loads(d["attractions"]) if isinstance(d["attractions"], str) else d["attractions"]
-        d["hotels"] = json.loads(d["hotels"]) if isinstance(d["hotels"], str) else d["hotels"]
-        d["activities"] = json.loads(d["activities"]) if isinstance(d["activities"], str) else d["activities"]
+        d["food_cuisine"] = safe_json_loads(d["food_cuisine"], [])
+        d["attractions"] = safe_json_loads(d["attractions"], [])
+        d["hotels"] = safe_json_loads(d["hotels"], [])
+        d["activities"] = safe_json_loads(d["activities"], [])
         return d
 
 async def fetch_and_cache_live_destination(place_name: str) -> Dict[str, Any]:

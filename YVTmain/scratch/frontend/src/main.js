@@ -10,6 +10,28 @@ let authMode = "login";
 const configuredApiUrl = document.querySelector('meta[name="triptrail-api-url"]')?.content?.trim() || "";
 const API_BASE_URL = configuredApiUrl.replace(/\/$/, "");
 
+async function safeResponseJson(res) {
+  const text = await res.text();
+  if (!text || !text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    console.warn("Non-JSON server response:", text);
+    return { error: text.replace(/<[^>]*>?/gm, "").trim() || `HTTP ${res.status} response` };
+  }
+}
+
+function safeJsonParse(jsonString, fallback = null) {
+  if (!jsonString) return fallback;
+  try {
+    return JSON.parse(jsonString);
+  } catch (e) {
+    console.error("JSON parse error:", e);
+    return fallback;
+  }
+}
+
+
 function apiFetch(url, options = {}) {
   const headers = new Headers(options.headers || {});
   if (authToken) headers.set("Authorization", `Bearer ${authToken}`);
@@ -140,7 +162,7 @@ function initAuth() {
     if (authMode === "register") body.name = document.getElementById("auth-name").value;
     try {
       const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const data = await response.json();
+      const data = await safeResponseJson(response);
       if (!response.ok) throw new Error(data.detail || "Authentication failed.");
       authToken = data.token;
       localStorage.setItem("triptrail_token", authToken);
@@ -154,7 +176,7 @@ function initAuth() {
     }
   });
   if (authToken) {
-    apiFetch("/api/auth/me").then((response) => response.ok ? response.json() : Promise.reject()).then((user) => {
+    apiFetch("/api/auth/me").then((response) => response.ok ? await safeResponseJson(response) : Promise.reject()).then((user) => {
       if (userLabel) userLabel.textContent = `Hi, ${user.name}`;
       if (open) open.textContent = "Sign out";
       applyTheme(user.theme || "system");
@@ -215,7 +237,7 @@ async function initStatusChecker() {
   try {
     const res = await fetch("/api/status");
     if (res.ok) {
-      const data = await res.json();
+      const data = await safeResponseJson(res);
       pill.className = "status-pill status-connected";
       pill.innerHTML = `<span class="status-dot"></span><span class="status-label">🟢 Trips synced (${data.trips_count})</span>`;
     } else {
@@ -248,7 +270,7 @@ function initGPSAutoDetect() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ lat, lng }),
           });
-          const data = await res.json();
+          const data = await safeResponseJson(res);
           const originInput = document.getElementById("trip-origin");
           const titleInput = document.getElementById("trip-title");
           const placeName = data.locality ? `${data.locality}, ${data.district}` : data.display_name;
@@ -294,7 +316,7 @@ function initAIPromptParser() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      const data = await res.json();
+      const data = await safeResponseJson(res);
       if (data.success) {
         (document.getElementById("trip-title")).value = data.title;
         (document.getElementById("trip-origin")).value = data.origin;
@@ -377,7 +399,7 @@ function initTripLogger() {
         (document.getElementById("trip-sequence")).value = String(seq + 1);
         initStatusChecker();
       } else {
-        const err = await res.json();
+        const err = await safeResponseJson(res);
         alert(`Error: ${err.error || err.detail}`);
       }
     } catch (e) {
@@ -394,7 +416,7 @@ async function loadTrips() {
   try {
     const res = await apiFetch("/api/trips");
     if (res.ok) {
-      allTrips = await res.json();
+      allTrips = await safeResponseJson(res);
       renderTrips(allTrips);
     }
   } catch (e) {
@@ -492,7 +514,7 @@ function initAIRoutePlanner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
-      const data = await res.json();
+      const data = await safeResponseJson(res);
       resultBox.classList.remove("hidden");
       (document.getElementById("route-mode-badge")).textContent = data.mode === "google" ? "Live Google Routes" : "AI Smart Route";
       (document.getElementById("route-dist-badge")).textContent = `Distance: ${data.distance}`;
@@ -553,7 +575,7 @@ function initAIItinerary() {
       const routeOpt = destSelect.querySelector('option[value="planned-route"]');
       if (routeOpt && routeOpt.dataset.routeStops) {
         try {
-          const stopsArr = JSON.parse(routeOpt.dataset.routeStops);
+          const stopsArr = safeJsonParse(routeOpt.dataset.routeStops, []);
           destVal = stopsArr.join(" -> ");
         } catch (e) {
           console.error("Error parsing route stops", e);
@@ -570,7 +592,7 @@ function initAIItinerary() {
           budget: budgetSelect.value,
         }),
       });
-      const data = await res.json();
+      const data = await safeResponseJson(res);
       resultBox.classList.remove("hidden");
       (document.getElementById("itinerary-title")).textContent = `Plan for ${data.destination} (${data.days} Days)`;
       (document.getElementById("itinerary-summary")).textContent = data.summary;
@@ -605,7 +627,7 @@ async function loadDestinations() {
   try {
     const res = await fetch("/api/tourism/destinations");
     if (res.ok) {
-      allDestinations = await res.json();
+      allDestinations = await safeResponseJson(res);
       renderDestinations(allDestinations);
     }
   } catch (e) {
@@ -680,7 +702,7 @@ function initTourismExplorer() {
           body: JSON.stringify({ place_name: place }),
         });
         if (res.ok) {
-          const dest = await res.json();
+          const dest = await safeResponseJson(res);
           alert(`✅ Successfully pulled real-world data from OpenStreetMap, Wikivoyage & Open-Meteo for ${dest.name}!`);
           loadDestinations();
           openDestinationModal(dest.name);
@@ -705,7 +727,7 @@ function initTourismExplorer() {
 
   try {
     const res = await fetch(`/api/tourism/destination/${encodeURIComponent(name)}`);
-    const dest = await res.json();
+    const dest = await safeResponseJson(res);
     const foods = Array.isArray(dest.food_cuisine) ? dest.food_cuisine : [];
     const attractions = Array.isArray(dest.attractions) ? dest.attractions : [];
     const hotels = Array.isArray(dest.hotels) ? dest.hotels : [];

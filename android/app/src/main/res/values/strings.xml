@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">YVT-Your Vision Trip</string>
+    <string name="title_activity_main">YVT-Your Vision Trip</string>
+    <string name="package_name">com.yvt.yourvisiontrip</string>
+    <string name="custom_url_scheme">com.yvt.yourvisiontrip</string>
+</resources>
