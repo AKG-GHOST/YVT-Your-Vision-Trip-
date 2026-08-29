@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0d131f" />
+  <meta name="description" content="TripTrail travel journal and mobility insights" />
+  <meta name="triptrail-api-url" content="" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/styles.css" />
+  <title>TripTrail | Personal Travel Journal</title>
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-container">
+        <div class="brand-box">
+          <div class="brand-icon">🌴</div>
+          <div class="brand-text">
+            <h1>TripTrail</h1>
+            <p class="brand-subtitle">Travel journal and mobility insights</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <span id="auth-user-label" class="auth-user-label"></span>
+          <button id="btn-theme" class="btn-icon" type="button" title="Change theme">Theme</button>
+          <button id="btn-auth" class="btn-icon" type="button">Sign in</button>
+          <div id="db-status-pill" class="status-pill status-connecting">
+            <span class="status-dot"></span>
+            <span class="status-label">Connecting DB...</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Tab Navigation -->
+      <nav class="app-nav">
+        <button class="nav-tab active" data-tab="tab-survey">
+          <span class="tab-icon">📋</span>
+          <span class="tab-label">Trip Logger</span>
+        </button>
+        <button class="nav-tab" data-tab="tab-trips">
+          <span class="tab-icon">🗺️</span>
+          <span class="tab-label">My Trips</span>
+        </button>
+        <button class="nav-tab" data-tab="tab-ai-route">
+          <span class="tab-icon">🤖</span>
+          <span class="tab-label">AI Route & Itinerary</span>
+        </button>
+        <button class="nav-tab" data-tab="tab-tourism">
+          <span class="tab-icon">🍛</span>
+          <span class="tab-label">Tourism Explorer</span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Main Container -->
+    <main class="app-main">
+      <!-- 1. TAB: PERSONAL TRIP LOGGER -->
+      <section id="tab-survey" class="tab-pane active">
+        <div class="pane-header">
+          <div>
+            <h2>Log a personal journey</h2>
+            <p class="pane-desc">Keep your travel history organized with routes, costs, timing, and personal notes.</p>
+          </div>
+          <div class="header-tools">
+            <button id="btn-quick-gps" class="btn-pill btn-primary-glow">
+              <span class="btn-icon-inner">📍</span> Auto-Detect GPS Location
+            </button>
+          </div>
+        </div>
+
+        <!-- AI Voice / Text Prompt Parser -->
+        <div class="ai-prompt-card">
+          <div class="ai-prompt-header">
+            <div class="ai-badge">⚡ AI Fast Logger</div>
+            <span>Type or paste your journey in plain words:</span>
+          </div>
+          <div class="ai-input-group">
+            <input type="text" id="ai-trip-text-input" placeholder="e.g. Took KSRTC bus from Trivandrum to Kollam at 8:30 AM for office work, paid 65 rs" />
+            <button id="btn-parse-trip-ai" class="btn-accent">Auto-Fill Form 🚀</button>
+          </div>
+        </div>
+
+        <!-- Personal trip form -->
+        <form id="trip-survey-form" class="survey-card">
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="trip-title">Trip Title / Journey Name *</label>
+              <input type="text" id="trip-title" required placeholder="e.g. Weekend trip to Munnar" />
+            </div>
+            <div class="form-group">
+              <label for="trip-sequence">Trip Sequence Number</label>
+              <input type="number" id="trip-sequence" min="1" value="1" />
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="trip-origin">Origin / Starting Place *</label>
+              <div class="input-with-action">
+                <input type="text" id="trip-origin" required placeholder="e.g. Kazhakkoottam, Thiruvananthapuram" />
+                <button type="button" id="btn-gps-origin" class="input-btn" title="Use Current GPS">📍</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="trip-destination">Destination Place *</label>
+              <input type="text" id="trip-destination" required placeholder="e.g. Pattom, Thiruvananthapuram" />
+            </div>
+          </div>
+
+          <!-- Travel Mode Selector -->
+          <div class="form-group">
+            <label>Primary Mode of Transportation *</label>
+            <div class="mode-grid">
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Bus" checked /><span>🚌 Bus (KSRTC/Pvt)</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Train" /><span>🚆 Train</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Metro" /><span>🚇 Kochi Metro</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Auto" /><span>🛺 Auto-rickshaw</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Car" /><span>🚗 Car / Cab</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Two-Wheeler" /><span>🛵 Bike / Scooter</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Walking" /><span>🚶 Walking</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Bicycle" /><span>🚲 Bicycle</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Ferry" /><span>⛴️ Ferry / Boat</span></label>
+              <label class="mode-chip"><input type="radio" name="travel_mode" value="Flight" /><span>✈️ Flight</span></label>
+            </div>
+          </div>
+
+          <div class="form-row-3">
+            <div class="form-group">
+              <label for="trip-purpose">Trip Purpose *</label>
+              <select id="trip-purpose">
+                <option value="Work">💼 Work / Office</option>
+                <option value="Education">🎓 Education / College / School</option>
+                <option value="Tourism">🌴 Tourism / Sightseeing</option>
+                <option value="Shopping">🛍️ Shopping / Market</option>
+                <option value="Healthcare">🏥 Healthcare / Hospital</option>
+                <option value="Social">🤝 Social / Family Visit</option>
+                <option value="Return Home">🏡 Return Home</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="trip-dep-time">Departure Time</label>
+              <input type="time" id="trip-dep-time" value="08:30" />
+            </div>
+            <div class="form-group">
+              <label for="trip-arr-time">Arrival Time</label>
+              <input type="time" id="trip-arr-time" value="09:15" />
+            </div>
+          </div>
+
+          <div class="form-row-3">
+            <div class="form-group">
+              <label for="trip-start-date">Travel Start Date *</label>
+              <input type="date" id="trip-start-date" required />
+            </div>
+            <div class="form-group">
+              <label for="trip-end-date">Travel End Date *</label>
+              <input type="date" id="trip-end-date" required />
+            </div>
+            <div class="form-group">
+              <label for="trip-fare">Fare / Fuel Cost (₹)</label>
+              <input type="number" id="trip-fare" min="0" step="0.5" value="25" />
+            </div>
+          </div>
+
+          <div class="form-row-2">
+            <div class="form-group">
+              <label for="trip-passengers">Accompanying Travelers</label>
+              <input type="number" id="trip-passengers" min="1" max="50" value="1" />
+            </div>
+            <div class="form-group">
+              <label for="trip-mood">Journey Mood</label>
+              <select id="trip-mood">
+                <option value="sunny">☀️ Sunny & Energized</option>
+                <option value="happy">😊 Happy & Smooth</option>
+                <option value="chill">🌊 Chill & Scenic</option>
+                <option value="adventurous">⛰️ Adventurous</option>
+                <option value="rainy">🌧️ Monsoon & Cozy</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="trip-note">Trip Notes / Experience / Observations</label>
+            <textarea id="trip-note" rows="2" placeholder="e.g. Traffic on Bypass; clean KSRTC electric bus."></textarea>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary btn-submit">
+              <span>💾 Save to My Trips</span>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- 2. TAB: MY TRIPS & JOURNAL -->
+      <section id="tab-trips" class="tab-pane">
+        <div class="pane-header">
+          <div>
+            <h2>My Trips & Travel Journal</h2>
+            <p class="pane-desc">Your recorded journeys, stored securely for your account.</p>
+          </div>
+          <div class="header-tools">
+            <input type="text" id="filter-trips-search" class="search-input" placeholder="Search trips by place/title..." />
+            <button id="btn-refresh-trips" class="btn-pill">🔄 Refresh</button>
+          </div>
+        </div>
+
+        <div id="trips-grid" class="trips-grid">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+
+      <!-- 3. TAB: AI ROUTE & SMART ITINERARY PLANNER -->
+      <section id="tab-ai-route" class="tab-pane">
+        <div class="pane-header">
+          <div>
+            <h2>AI Route & Itinerary Planner</h2>
+            <p class="pane-desc">Plan multi-stop driving routes and generate custom multi-day itineraries for your journeys.</p>
+          </div>
+        </div>
+
+        <div class="grid-2-col">
+          <!-- Route Planner -->
+          <div class="card-box">
+            <h3>🚗 Multi-Stop Driving Route AI</h3>
+            <p class="text-muted">Enter multiple stops (e.g. "Thiruvananthapuram -> Alappuzha -> Kochi -> Munnar")</p>
+            <div class="form-group">
+              <input type="text" id="route-prompt-input" value="Thiruvananthapuram -> Alappuzha -> Kochi -> Munnar" />
+            </div>
+            <button id="btn-plan-route" class="btn-primary">Plan AI Route 🧭</button>
+
+            <div id="route-result-box" class="result-box hidden">
+              <div class="result-badge-row">
+                <span id="route-mode-badge" class="badge-mode">Route ready</span>
+                <span id="route-dist-badge" class="badge-metric">0 km</span>
+                <span id="route-dur-badge" class="badge-metric">0 min</span>
+              </div>
+              <h4>Waypoints:</h4>
+              <div id="route-stops-list" class="stops-chips"></div>
+              <p id="route-note-msg" class="text-sm text-muted"></p>
+              <a id="route-maps-link" href="#" target="_blank" class="btn-maps">🗺️ Open in Google Maps</a>
+            </div>
+          </div>
+
+          <!-- Multi-Day Itinerary Planner -->
+          <div class="card-box">
+            <h3>🌴 AI Multi-Day Tourism Itinerary</h3>
+            <p class="text-muted">Generate a custom day-by-day plan with dining, sightseeing, and transport.</p>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label>Destination</label>
+                <select id="itinerary-dest-select">
+                  <option value="Munnar">Munnar (Hill Station)</option>
+                  <option value="Kochi">Kochi (Heritage & Port)</option>
+                  <option value="Alappuzha">Alappuzha (Backwaters)</option>
+                  <option value="Wayanad">Wayanad (Caves & Treks)</option>
+                  <option value="Thiruvananthapuram">Thiruvananthapuram (Capital & Beaches)</option>
+                  <option value="Goa">Goa (Coastal Paradise)</option>
+                  <option value="Mysuru">Mysuru (Royal Palaces)</option>
+                  <option value="Bengaluru">Bengaluru (Silicon City)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Days</label>
+                <select id="itinerary-days-select">
+                  <option value="2">2 Days (Weekend)</option>
+                  <option value="3" selected>3 Days (Short Holiday)</option>
+                  <option value="5">5 Days (Full Experience)</option>
+                  <option value="7">7 Days (Grand Tour)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Budget Tier</label>
+              <select id="itinerary-budget-select">
+                <option value="budget">Backpacker / Budget (₹1,200 - ₹2,200/day)</option>
+                <option value="moderate" selected>Moderate Comfort (₹2,800 - ₹4,500/day)</option>
+                <option value="luxury">Luxury 5-Star (₹8,500 - ₹16,000/day)</option>
+              </select>
+            </div>
+            <button id="btn-generate-itinerary" class="btn-accent">Generate AI Itinerary ✨</button>
+
+            <div id="itinerary-result-box" class="result-box hidden">
+              <h4 id="itinerary-title"></h4>
+              <p id="itinerary-summary" class="text-sm"></p>
+              <div class="itinerary-meta">
+                <span id="itinerary-budget-badge" class="badge-metric"></span>
+                <span id="itinerary-season-badge" class="badge-metric"></span>
+              </div>
+              <div id="itinerary-timeline" class="itinerary-timeline"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. TAB: TOURISM EXPLORER (LIVE APIS) -->
+      <section id="tab-tourism" class="tab-pane">
+        <div class="pane-header">
+          <div>
+            <h2>Real-World Tourism Explorer</h2>
+            <p class="pane-desc">Discover Food 🍛, Attractions 🏛️, Hotels 🏨, Activities 🎯, and Live Weather 🌦️ powered by OpenStreetMap & Wikivoyage.</p>
+          </div>
+          <div class="header-tools">
+            <div class="search-with-button">
+              <input type="text" id="live-search-input" class="search-input" placeholder="Search any city (e.g. Varkala, Kozhikode, Ooty)..." />
+              <button id="btn-fetch-live-dest" class="btn-pill btn-primary">Fetch Live 🌐</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter pills -->
+        <div class="category-pills">
+          <button class="cat-pill active" data-cat="all">All Destinations</button>
+          <button class="cat-pill" data-cat="hill">Hill Stations & Tea</button>
+          <button class="cat-pill" data-cat="coastal">Coastal & Beaches</button>
+          <button class="cat-pill" data-cat="backwaters">Backwaters</button>
+          <button class="cat-pill" data-cat="heritage">Heritage & Palaces</button>
+          <button class="cat-pill" data-cat="kerala">Kerala Only</button>
+        </div>
+
+        <div id="destinations-grid" class="destinations-grid">
+          <!-- Dynamically populated -->
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Modal for destination details -->
+    <div id="dest-modal" class="modal-backdrop hidden">
+      <div class="modal-container">
+        <button id="btn-close-modal" class="modal-close">&times;</button>
+        <div id="modal-content" class="modal-body"></div>
+      </div>
+    </div>
+
+  </div>
+  <div id="auth-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <div class="modal-container auth-card">
+      <button id="btn-close-auth" class="modal-close" type="button" aria-label="Close">×</button>
+      <h3 id="auth-title">Welcome to TripTrail</h3>
+      <p class="text-muted">Create an account to keep your trips and preferences private across devices.</p>
+      <form id="auth-form">
+        <div id="auth-name-group" class="form-group">
+          <label for="auth-name">Name</label>
+          <input id="auth-name" type="text" autocomplete="name" minlength="2" required />
+        </div>
+        <div class="form-group">
+          <label for="auth-email">Email</label>
+          <input id="auth-email" type="email" autocomplete="email" required />
+        </div>
+        <div class="form-group">
+          <label for="auth-password">Password (8+ characters)</label>
+          <input id="auth-password" type="password" autocomplete="current-password" minlength="8" required />
+        </div>
+        <p id="auth-error" class="form-error" role="alert"></p>
+        <button class="btn-primary btn-submit" type="submit">Continue</button>
+      </form>
+      <button id="btn-toggle-auth-mode" class="link-button" type="button">Need an account? Register</button>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
