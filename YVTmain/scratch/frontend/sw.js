@@ -1,5 +1,5 @@
 const CACHE_NAME = 'triptrail-v2';
-const ASSETS = ['/', '/src/styles.css', '/src/main.ts', '/manifest.webmanifest'];
+const ASSETS = ['/', '/src/styles.css', '/src/main.js', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
