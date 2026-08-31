@@ -9,6 +9,48 @@ let authMode = "login";
 const configuredApiUrl = document.querySelector('meta[name="triptrail-api-url"]')?.content?.trim() || "";
 const API_BASE_URL = configuredApiUrl.replace(/\/$/, "");
 
+// Global Non-Blocking Toast UI Notification Engine
+function showToast(message, type = "info", duration = 4500) {
+  let container = document.getElementById("toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "toast-container";
+    container.className = "toast-container";
+    document.body.appendChild(container);
+  }
+
+  const icons = {
+    info: "ℹ️",
+    success: "✅",
+    warning: "⚠️",
+    error: "❌"
+  };
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type] || "📍"}</span>
+    <div class="toast-content">${message}</div>
+    <button class="toast-close" aria-label="Close">&times;</button>
+  `;
+
+  const closeBtn = toast.querySelector(".toast-close");
+  const removeToast = () => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(10px)";
+    setTimeout(() => toast.remove(), 300);
+  };
+
+  if (closeBtn) closeBtn.addEventListener("click", removeToast);
+  container.appendChild(toast);
+
+  if (duration > 0) {
+    setTimeout(removeToast, duration);
+  }
+}
+window.showToast = showToast;
+
+
 // Local Seed Destinations Dataset for Standalone Offline Operation
 const SEED_DESTINATIONS = [
   {
@@ -664,7 +706,7 @@ function initGPSAutoDetect() {
   const btnOrigin = document.getElementById("btn-gps-origin");
   const handler = () => {
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser.");
+      showToast("Geolocation is not supported by your browser.", "warning");
       return;
     }
     if (btnQuick) btnQuick.innerHTML = `<span class="btn-icon-inner">⏳</span> Sensing Location...`;
@@ -687,17 +729,19 @@ function initGPSAutoDetect() {
             titleInput.value = `Journey from ${data.locality || "Current Location"}`;
           }
           if (btnQuick) btnQuick.innerHTML = `<span class="btn-icon-inner">📍</span> GPS: ${data.locality || "Auto-Detected"}`;
+          showToast(`📍 Location detected: ${placeName}`, "success");
         } catch {
           const originInput = document.getElementById("trip-origin");
           if (originInput) originInput.value = `Lat: ${lat.toFixed(3)}, Lng: ${lng.toFixed(3)}`;
           if (btnQuick) btnQuick.innerHTML = `<span class="btn-icon-inner">📍</span> GPS Acquired`;
+          showToast(`📍 Coords acquired: ${lat.toFixed(3)}, ${lng.toFixed(3)}`, "info");
         }
       },
       (err) => {
         if (btnQuick) btnQuick.innerHTML = `<span class="btn-icon-inner">📍</span> Auto-Detect GPS Location`;
         const originInput = document.getElementById("trip-origin");
         if (originInput && !originInput.value) originInput.value = "Thiruvananthapuram, Kerala";
-        alert(`GPS Notice: Using default location (${err.message})`);
+        showToast(`GPS Notice: Using default location (${err.message})`, "warning", 5000);
       },
       { timeout: 8000 }
     );
@@ -714,7 +758,7 @@ function initAIPromptParser() {
   btn.addEventListener("click", async () => {
     const text = input.value.trim();
     if (!text) {
-      alert("Please enter a journey description first.");
+      showToast("Please enter a journey description first.", "warning");
       return;
     }
     btn.textContent = "Extracting... ⚡";
@@ -738,10 +782,10 @@ function initAIPromptParser() {
         modeRadios.forEach((r) => {
           if (r.value.toLowerCase() === (data.travel_mode || "").toLowerCase()) r.checked = true;
         });
-        alert(`✨ AI Auto-Filled Form:\n• Mode: ${data.travel_mode}\n• Origin: ${data.origin}\n• Destination: ${data.destination}\n• Purpose: ${data.trip_purpose}\n• Fare: ₹${data.fare_cost}`);
+        showToast(`✨ AI Auto-Filled Form: ${data.travel_mode} from ${data.origin} to ${data.destination}`, "success");
       }
     } catch (e) {
-      alert(`AI parsing result: ${e.message}`);
+      showToast(`AI parsing notice: ${e.message}`, "info");
     } finally {
       btn.textContent = "Auto-Fill Form 🚀";
     }
@@ -800,7 +844,7 @@ function initTripLogger() {
         body: JSON.stringify(payload),
       });
       if (res.ok) {
-        alert("✅ Trip journey saved successfully!");
+        showToast("🎉 Trip journey saved successfully!", "success");
         (document.getElementById("trip-title")).value = "";
         (document.getElementById("trip-destination")).value = "";
         (document.getElementById("trip-note")).value = "";
@@ -809,11 +853,11 @@ function initTripLogger() {
         initStatusChecker();
       } else {
         const err = await safeResponseJson(res);
-        alert(`Notice: ${err.error || err.detail || 'Trip saved locally.'}`);
+        showToast(`Notice: ${err.error || err.detail || 'Trip saved locally.'}`, "info");
         loadTrips();
       }
     } catch (e) {
-      alert(`Submission notice: ${e.message}`);
+      showToast(`Submission notice: ${e.message}`, "warning");
     }
   });
 }
@@ -881,11 +925,12 @@ window.deleteTripById = async (id) => {
   try {
     const res = await apiFetch(`/api/trips/${id}`, { method: "DELETE" });
     if (res.ok) {
+      showToast("Trip record deleted.", "info");
       loadTrips();
       initStatusChecker();
     }
   } catch (e) {
-    alert(`Delete notice: ${e.message}`);
+    showToast(`Delete notice: ${e.message}`, "error");
   }
 };
 
@@ -916,7 +961,7 @@ function initAIRoutePlanner() {
   if (!btn || !input || !resultBox) return;
   btn.addEventListener("click", async () => {
     const prompt = input.value.trim();
-    if (!prompt) return alert("Please enter route stops");
+    if (!prompt) return showToast("Please enter route stops", "warning");
     btn.textContent = "Calculating AI Route... 🧭";
     try {
       const res = await apiFetch("/api/ai/route", {
@@ -962,8 +1007,9 @@ function initAIRoutePlanner() {
 
       const mapsLink = document.getElementById("route-maps-link");
       if (mapsLink) mapsLink.href = data.mapsUrl || "#";
+      showToast("🧭 AI Route calculated successfully!", "success");
     } catch (e) {
-      alert(`Route error: ${e.message}`);
+      showToast(`Route error: ${e.message}`, "error");
     } finally {
       btn.textContent = "Plan AI Route 🧭";
     }
@@ -1021,8 +1067,9 @@ function initAIItinerary() {
           </div>
         `).join("");
       }
+      showToast(`✨ Curated ${data.days}-day itinerary for ${data.destination}!`, "success");
     } catch (e) {
-      alert(`Itinerary error: ${e.message}`);
+      showToast(`Itinerary error: ${e.message}`, "error");
     } finally {
       btn.textContent = "Generate AI Itinerary ✨";
     }
@@ -1103,7 +1150,7 @@ function initTourismExplorer() {
   if (btnFetch && searchInput) {
     btnFetch.addEventListener("click", async () => {
       const place = searchInput.value.trim();
-      if (!place) return alert("Please enter a destination name (e.g. Varkala, Kozhikode, Goa)");
+      if (!place) return showToast("Please enter a destination name (e.g. Varkala, Kozhikode, Goa)", "warning");
       btnFetch.textContent = "Fetching Destination 🌐...";
       try {
         const res = await apiFetch("/api/tourism/fetch-live", {
@@ -1113,14 +1160,14 @@ function initTourismExplorer() {
         });
         if (res.ok) {
           const dest = await safeResponseJson(res);
-          alert(`✅ Destination details loaded for ${dest.name}!`);
+          showToast(`📍 Destination details loaded for ${dest.name}!`, "success");
           loadDestinations();
           openDestinationModal(dest.name);
         } else {
-          alert("Could not fetch destination information.");
+          showToast("Could not fetch destination information.", "error");
         }
       } catch (e) {
-        alert(`API Fetch result: ${e.message}`);
+        showToast(`API Fetch notice: ${e.message}`, "info");
       } finally {
         btnFetch.textContent = "Fetch Live 🌐";
       }
