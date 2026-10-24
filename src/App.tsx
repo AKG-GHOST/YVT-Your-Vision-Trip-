@@ -31,7 +31,12 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('triptrail_token')
+      const saved = localStorage.getItem('triptrail_token')
+      if (saved === 'guest-token') {
+        localStorage.removeItem('triptrail_token')
+        return null
+      }
+      return saved
     } catch {
       return null
     }
@@ -47,11 +52,24 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
 
+  // Clear any legacy guest storage on initial mount
+  useEffect(() => {
+    try {
+      localStorage.removeItem('triptrail_guest_trips')
+      localStorage.removeItem('triptrail_guest_wishlist')
+      if (localStorage.getItem('triptrail_token') === 'guest-token') {
+        localStorage.removeItem('triptrail_token')
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
   // Helper for authenticated fetch
   const authFetch = useCallback(
     async (url: string, options: RequestInit = {}) => {
       const headers = new Headers(options.headers || {})
-      if (token && token !== 'guest-token') {
+      if (token) {
         headers.set('Authorization', `Bearer ${token}`)
       }
       if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
@@ -70,18 +88,7 @@ export default function App() {
 
   // Load user data (Trips & Wishlist)
   const loadUserData = useCallback(async () => {
-    if (token === 'guest-token') {
-      try {
-        const localTrips = localStorage.getItem('triptrail_guest_trips')
-        const localWish = localStorage.getItem('triptrail_guest_wishlist')
-        setTrips(localTrips ? JSON.parse(localTrips) : [])
-        setWishlist(localWish ? JSON.parse(localWish) : [])
-      } catch {
-        setTrips([])
-        setWishlist([])
-      }
-      return
-    }
+    if (!token) return
 
     try {
       const [tripsRes, wishRes] = await Promise.all([
@@ -89,17 +96,28 @@ export default function App() {
         authFetch('/api/wishlists'),
       ])
 
+      if (tripsRes.status === 401 || wishRes.status === 401) {
+        handleLogout()
+        return
+      }
+
       const tripsParsed = await safeJson<Trip[]>(tripsRes)
       if (tripsParsed.ok && Array.isArray(tripsParsed.data)) {
         setTrips(tripsParsed.data)
+      } else {
+        setTrips([])
       }
 
       const wishParsed = await safeJson<WishlistItem[]>(wishRes)
       if (wishParsed.ok && Array.isArray(wishParsed.data)) {
         setWishlist(wishParsed.data)
+      } else {
+        setWishlist([])
       }
     } catch (err) {
       console.error('[Load User Data Error]', err)
+      setTrips([])
+      setWishlist([])
     }
   }, [authFetch, token])
 
@@ -108,11 +126,10 @@ export default function App() {
     async function checkAuthAndDb() {
       setAuthLoading(true)
 
-      // Check saved guest mode
       const savedToken = localStorage.getItem('triptrail_token')
-      if (savedToken === 'guest-token') {
-        setUser({ id: 0, name: 'Guest Traveler', email: 'guest@offline.local' })
-        setToken('guest-token')
+      if (!savedToken || savedToken === 'guest-token') {
+        setUser(null)
+        setToken(null)
         setAuthLoading(false)
         return
       }
@@ -122,9 +139,7 @@ export default function App() {
         const headers: HeadersInit = {
           'Cache-Control': 'no-cache, no-store, must-revalidate',
           'Pragma': 'no-cache',
-        }
-        if (savedToken) {
-          headers['Authorization'] = `Bearer ${savedToken}`
+          Authorization: `Bearer ${savedToken}`,
         }
 
         const meRes = await fetch('/api/auth/me', {
@@ -136,13 +151,11 @@ export default function App() {
 
         if (meParsed.ok && meParsed.data?.user) {
           setUser(meParsed.data.user)
-          if (savedToken) setToken(savedToken)
+          setToken(savedToken)
         } else {
           setUser(null)
           setToken(null)
-          if (savedToken && savedToken !== 'guest-token') {
-            localStorage.removeItem('triptrail_token')
-          }
+          localStorage.removeItem('triptrail_token')
         }
       } catch {
         setUser(null)
@@ -165,18 +178,6 @@ export default function App() {
     }
   }, [user, token, loadUserData])
 
-  // Save guest trips to localStorage
-  useEffect(() => {
-    if (token === 'guest-token') {
-      try {
-        localStorage.setItem('triptrail_guest_trips', JSON.stringify(trips))
-        localStorage.setItem('triptrail_guest_wishlist', JSON.stringify(wishlist))
-      } catch {
-        // ignore
-      }
-    }
-  }, [trips, wishlist, token])
-
   // Handle successful login or register
   function handleAuthSuccess(authenticatedUser: User, receivedToken: string) {
     try {
@@ -188,21 +189,9 @@ export default function App() {
     setUser(authenticatedUser)
   }
 
-  // Handle Guest Access
-  function handleGuestAccess() {
-    const guestUser: User = { id: 0, name: 'Guest Explorer', email: 'guest@offline.local' }
-    try {
-      localStorage.setItem('triptrail_token', 'guest-token')
-    } catch {
-      // ignore
-    }
-    setToken('guest-token')
-    setUser(guestUser)
-  }
-
   // Handle Logout
   async function handleLogout() {
-    if (token && token !== 'guest-token') {
+    if (token) {
       try {
         await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
       } catch {
@@ -211,6 +200,8 @@ export default function App() {
     }
     try {
       localStorage.removeItem('triptrail_token')
+      localStorage.removeItem('triptrail_guest_trips')
+      localStorage.removeItem('triptrail_guest_wishlist')
     } catch {
       // ignore
     }
@@ -221,14 +212,8 @@ export default function App() {
     setActiveTab('home')
   }
 
-  // Save new trip to backend or guest storage
+  // Save new trip to backend
   async function handleSaveTrip(newTrip: Trip) {
-    if (token === 'guest-token') {
-      const localTrip: Trip = { ...newTrip, id: Date.now() }
-      setTrips((prev) => [localTrip, ...prev])
-      return
-    }
-
     try {
       const res = await authFetch('/api/trips', {
         method: 'POST',
@@ -246,11 +231,6 @@ export default function App() {
 
   // Delete trip
   async function handleDeleteTrip(id: number) {
-    if (token === 'guest-token') {
-      setTrips((prev) => prev.filter((t) => t.id !== id))
-      return
-    }
-
     try {
       const res = await authFetch(`/api/trips/${id}`, { method: 'DELETE' })
       const parsed = await safeJson(res)
@@ -265,12 +245,6 @@ export default function App() {
 
   // Add Wishlist item
   async function handleAddWishlist(item: { title: string; location: string; season: string; vibe: string }) {
-    if (token === 'guest-token') {
-      const localWish: WishlistItem = { ...item, id: `w-${Date.now()}` }
-      setWishlist((prev) => [localWish, ...prev])
-      return
-    }
-
     const res = await authFetch('/api/wishlists', {
       method: 'POST',
       body: JSON.stringify(item),
@@ -284,11 +258,6 @@ export default function App() {
 
   // Remove Wishlist item
   async function handleRemoveWishlist(id: string | number) {
-    if (token === 'guest-token') {
-      setWishlist((prev) => prev.filter((w) => w.id !== id))
-      return
-    }
-
     const res = await authFetch(`/api/wishlists/${id}`, { method: 'DELETE' })
     const parsed = await safeJson(res)
     if (!parsed.ok) {
@@ -299,11 +268,6 @@ export default function App() {
 
   // Update profile / password
   async function handleUpdateProfile(name: string, currentPassword?: string, newPassword?: string) {
-    if (token === 'guest-token') {
-      setUser((prev) => (prev ? { ...prev, name } : null))
-      return
-    }
-
     const res = await authFetch('/api/auth/profile', {
       method: 'PUT',
       body: JSON.stringify({ name, currentPassword, newPassword }),
@@ -334,7 +298,7 @@ export default function App() {
 
   // If not authenticated: show Login & Registration Page
   if (!user) {
-    return <AuthPage onAuthSuccess={handleAuthSuccess} onGuestAccess={handleGuestAccess} />
+    return <AuthPage onAuthSuccess={handleAuthSuccess} />
   }
 
   // Authenticated Application

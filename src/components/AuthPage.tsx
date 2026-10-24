@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, ArrowRight, Lock, Mail, User, Eye, EyeOff, Loader2, ShieldCheck, Compass } from 'lucide-react'
+import { Sparkles, ArrowRight, Lock, Mail, User, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
 import type { User as UserType } from '../types'
 
 type Props = {
   onAuthSuccess: (user: UserType, token: string) => void
-  onGuestAccess?: () => void
 }
 
-export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
+export default function AuthPage({ onAuthSuccess }: Props) {
   const [isRegister, setIsRegister] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -74,6 +73,8 @@ export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
           throw new Error(data.error || 'Incorrect password. Please verify your password and try again.')
         } else if (res.status === 409) {
           throw new Error(data.error || 'An account with this email address already exists. Please sign in.')
+        } else if (res.status === 429) {
+          throw new Error(data.error || 'Too many authentication attempts. Please wait 15 minutes before trying again.')
         } else if (res.status >= 500) {
           throw new Error(data.error || 'Database service is temporarily unavailable. Please try again shortly.')
         }
@@ -120,12 +121,12 @@ export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
               <Sparkles className="w-3 h-3 text-[#E8654A]" /> Private Travel Sanctuary
             </span>
             <h1 className="mt-3 text-2xl sm:text-3xl font-serif font-bold tracking-tight text-[#2B231D]">
-              {isRegister ? 'Begin Your Journey' : 'Welcome Back'}
+              {isRegister ? 'Create Your Account' : 'Welcome Back'}
             </h1>
             <p className="mt-1.5 text-xs text-[#8A7968]">
               {isRegister
-                ? 'Create a private account to curate your journeys & routes.'
-                : 'Sign in to access your personal journal and routes.'}
+                ? 'Sign up to curate and safely store your journeys & wishlists.'
+                : 'Sign in to access your private journeys, wishlists & routes.'}
             </p>
           </div>
 
@@ -241,7 +242,7 @@ export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3 rounded-2xl bg-[#E8654A] hover:bg-[#D75438] active:scale-[0.99] text-white text-xs font-semibold shadow-md shadow-[#E8654A]/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className="w-full mt-2 py-3 rounded-2xl bg-[#E8654A] hover:bg-[#D75438] active:scale-[0.99] text-white text-xs font-semibold shadow-md shadow-[#E8654A]/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
             >
               {loading ? (
                 <>
@@ -257,23 +258,9 @@ export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
             </button>
           </form>
 
-          {/* Guest Mode option */}
-          {onGuestAccess && (
-            <div className="mt-4 pt-4 border-t border-[#F5F0EA] text-center">
-              <button
-                type="button"
-                onClick={onGuestAccess}
-                className="inline-flex items-center gap-1.5 text-xs text-[#8A7968] hover:text-[#2B231D] font-medium transition-colors"
-              >
-                <Compass className="w-3.5 h-3.5 text-[#2D7DD2]" />
-                <span>Or continue in Guest Mode (Offline Storage)</span>
-              </button>
-            </div>
-          )}
-
           {/* Privacy Note */}
-          <div className="mt-3 text-center text-[11px] text-[#A89682] leading-relaxed">
-            All passwords hashed with bcrypt. Your journal and personal notes are isolated to your private account.
+          <div className="mt-5 text-center text-[11px] text-[#A89682] leading-relaxed">
+            All passwords are encrypted with bcrypt. Your journeys and wishlist items are isolated to your private account.
           </div>
         </motion.div>
       </div>
