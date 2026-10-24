@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, ArrowRight, Lock, Mail, User, Eye, EyeOff, Loader2, ShieldCheck } from 'lucide-react'
+import { Sparkles, ArrowRight, Lock, Mail, User, Eye, EyeOff, Loader2, ShieldCheck, Compass } from 'lucide-react'
 import type { User as UserType } from '../types'
 
 type Props = {
   onAuthSuccess: (user: UserType, token: string) => void
+  onGuestAccess?: () => void
 }
 
-export default function AuthPage({ onAuthSuccess }: Props) {
+export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
   const [isRegister, setIsRegister] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -50,7 +51,19 @@ export default function AuthPage({ onAuthSuccess }: Props) {
         body: JSON.stringify(payload),
       })
 
-      const data = await res.json()
+      const rawText = await res.text()
+      let data: any = {}
+      try {
+        data = rawText ? JSON.parse(rawText) : {}
+      } catch {
+        if (!res.ok) {
+          throw new Error(
+            `Server error (${res.status}): Unable to connect to authentication service. Please ensure the backend server is running.`
+          )
+        } else {
+          throw new Error('Server returned an unexpected non-JSON response.')
+        }
+      }
 
       if (!res.ok) {
         throw new Error(data.error || 'Authentication failed. Please check your credentials.')
@@ -136,7 +149,7 @@ export default function AuthPage({ onAuthSuccess }: Props) {
                 initial={{ opacity: 0, y: -8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
-                className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs leading-relaxed"
+                className="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 text-xs leading-relaxed"
               >
                 {error}
               </motion.div>
@@ -229,8 +242,22 @@ export default function AuthPage({ onAuthSuccess }: Props) {
             </button>
           </form>
 
+          {/* Guest Mode option */}
+          {onGuestAccess && (
+            <div className="mt-4 pt-4 border-t border-[#F5F0EA] text-center">
+              <button
+                type="button"
+                onClick={onGuestAccess}
+                className="inline-flex items-center gap-1.5 text-xs text-[#8A7968] hover:text-[#2B231D] font-medium transition-colors"
+              >
+                <Compass className="w-3.5 h-3.5 text-[#2D7DD2]" />
+                <span>Or continue in Guest Mode (Offline Storage)</span>
+              </button>
+            </div>
+          )}
+
           {/* Privacy Note */}
-          <div className="mt-6 pt-4 border-t border-[#F5F0EA] text-center text-[11px] text-[#A89682] leading-relaxed">
+          <div className="mt-3 text-center text-[11px] text-[#A89682] leading-relaxed">
             All passwords hashed with bcrypt. Your journal and personal notes are isolated to your private account.
           </div>
         </motion.div>

@@ -15,6 +15,16 @@ const JWT_SECRET = process.env.JWT_SECRET || 'triptrail-super-secret-jwt-key-202
 app.use(express.json())
 app.use(cookieParser())
 
+// Ensure schema is initialized before handling requests
+app.use(async (_req, _res, next) => {
+  try {
+    await initSchema()
+    next()
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ── Auth Middleware ──────────────────────────────────────────────
 async function requireAuth(req, res, next) {
   try {
@@ -370,15 +380,20 @@ app.get('/api/status', async (_req, res) => {
   })
 })
 
-// ── Serve Static Frontend ─────────────────────────────────────────
+// ── Serve Static Frontend (for standalone Node server) ───────────
 app.use(express.static(path.join(root, 'dist')))
 app.use((_req, res) => res.sendFile(path.join(root, 'dist', 'index.html')))
 
-// ── Initialize Schema & Start ─────────────────────────────────────
-initSchema()
-  .then(() => {
-    app.listen(port, () => console.log(`[TripTrail] Server running at http://localhost:${port}`))
-  })
-  .catch((err) => {
-    console.error('[TripTrail] Failed to start database schema:', err)
-  })
+// ── Export App for Serverless / Vercel & Start Local Server ───────
+export default app
+
+// Only start listening if executed directly (e.g. node server.mjs)
+if (!process.env.VERCEL) {
+  initSchema()
+    .then(() => {
+      app.listen(port, () => console.log(`[TripTrail] Server running at http://localhost:${port}`))
+    })
+    .catch((err) => {
+      console.error('[TripTrail] Failed to start database schema:', err)
+    })
+}

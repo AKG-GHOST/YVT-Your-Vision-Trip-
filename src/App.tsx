@@ -12,6 +12,21 @@ import ProfileView from './components/ProfileView'
 import AuthPage from './components/AuthPage'
 import type { User, Trip, Tab, WishlistItem } from './types'
 
+// Helper to safely parse JSON without crashing on HTML
+async function safeJson<T = any>(res: Response): Promise<{ ok: boolean; data: T | null; error?: string }> {
+  const text = await res.text()
+  try {
+    const data = text ? JSON.parse(text) : null
+    return { ok: res.ok, data, error: data?.error }
+  } catch {
+    return {
+      ok: false,
+      data: null,
+      error: res.ok ? 'Received invalid JSON' : `Server responded with ${res.status}: ${res.statusText}`,
+    }
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null)
   const [token, setToken] = useState<string | null>(() => {
@@ -40,7 +55,7 @@ export default function App() {
   const authFetch = useCallback(
     async (url: string, options: RequestInit = {}) => {
       const headers = new Headers(options.headers || {})
-      if (token) {
+      if (token && token !== 'guest-token') {
         headers.set('Authorization', `Bearer ${token}`)
       }
       if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
@@ -57,25 +72,38 @@ export default function App() {
 
   // Load user data (Trips & Wishlist)
   const loadUserData = useCallback(async () => {
+    if (token === 'guest-token') {
+      try {
+        const localTrips = localStorage.getItem('triptrail_guest_trips')
+        const localWish = localStorage.getItem('triptrail_guest_wishlist')
+        setTrips(localTrips ? JSON.parse(localTrips) : [])
+        setWishlist(localWish ? JSON.parse(localWish) : [])
+      } catch {
+        setTrips([])
+        setWishlist([])
+      }
+      return
+    }
+
     try {
       const [tripsRes, wishRes] = await Promise.all([
         authFetch('/api/trips'),
         authFetch('/api/wishlists'),
       ])
 
-      if (tripsRes.ok) {
-        const tripsData = await tripsRes.json()
-        setTrips(Array.isArray(tripsData) ? tripsData : [])
+      const tripsParsed = await safeJson<Trip[]>(tripsRes)
+      if (tripsParsed.ok && Array.isArray(tripsParsed.data)) {
+        setTrips(tripsParsed.data)
       }
 
-      if (wishRes.ok) {
-        const wishData = await wishRes.json()
-        setWishlist(Array.isArray(wishData) ? wishData : [])
+      const wishParsed = await safeJson<WishlistItem[]>(wishRes)
+      if (wishParsed.ok && Array.isArray(wishParsed.data)) {
+        setWishlist(wishParsed.data)
       }
     } catch (err) {
       console.error('[Load User Data Error]', err)
     }
-  }, [authFetch])
+  }, [authFetch, token])
 
   // Check initial authentication state & DB status
   useEffect(() => {
@@ -85,23 +113,31 @@ export default function App() {
       // Check DB Status
       try {
         const statusRes = await fetch('/api/status')
-        if (statusRes.ok) {
-          const statusData = await statusRes.json()
+        const statusParsed = await safeJson<any>(statusRes)
+        if (statusParsed.ok && statusParsed.data) {
           setDbStatus({
-            connected: Boolean(statusData.connected),
+            connected: Boolean(statusParsed.data.connected),
             checked: true,
-            type: statusData.db?.type,
-            file: statusData.db?.file,
+            type: statusParsed.data.db?.type,
+            file: statusParsed.data.db?.file,
           })
         }
       } catch {
         setDbStatus({ connected: false, checked: true })
       }
 
-      // Check session
+      // Check saved guest mode
+      const savedToken = localStorage.getItem('triptrail_token')
+      if (savedToken === 'guest-token') {
+        setUser({ id: 0, name: 'Guest Traveler', email: 'guest@offline.local' })
+        setToken('guest-token')
+        setAuthLoading(false)
+        return
+      }
+
+      // Check session with server
       try {
         const headers: HeadersInit = {}
-        const savedToken = localStorage.getItem('triptrail_token')
         if (savedToken) {
           headers['Authorization'] = `Bearer ${savedToken}`
         }
@@ -111,15 +147,17 @@ export default function App() {
           credentials: 'include',
         })
 
-        if (meRes.ok) {
-          const meData = await meRes.json()
-          setUser(meData.user)
+        const meParsed = await safeJson<{ user: User }>(meRes)
+
+        if (meParsed.ok && meParsed.data?.user) {
+          setUser(meParsed.data.user)
           if (savedToken) setToken(savedToken)
         } else {
-          // Token expired or invalid
           setUser(null)
           setToken(null)
-          localStorage.removeItem('triptrail_token')
+          if (savedToken && savedToken !== 'guest-token') {
+            localStorage.removeItem('triptrail_token')
+          }
         }
       } catch {
         setUser(null)
@@ -142,6 +180,18 @@ export default function App() {
     }
   }, [user, token, loadUserData])
 
+  // Save guest trips to localStorage
+  useEffect(() => {
+    if (token === 'guest-token') {
+      try {
+        localStorage.setItem('triptrail_guest_trips', JSON.stringify(trips))
+        localStorage.setItem('triptrail_guest_wishlist', JSON.stringify(wishlist))
+      } catch {
+        // ignore
+      }
+    }
+  }, [trips, wishlist, token])
+
   // Handle successful login or register
   function handleAuthSuccess(authenticatedUser: User, receivedToken: string) {
     try {
@@ -153,12 +203,26 @@ export default function App() {
     setUser(authenticatedUser)
   }
 
-  // Handle Logout
-  async function handleLogout() {
+  // Handle Guest Access
+  function handleGuestAccess() {
+    const guestUser: User = { id: 0, name: 'Guest Explorer', email: 'guest@offline.local' }
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      localStorage.setItem('triptrail_token', 'guest-token')
     } catch {
       // ignore
+    }
+    setToken('guest-token')
+    setUser(guestUser)
+  }
+
+  // Handle Logout
+  async function handleLogout() {
+    if (token && token !== 'guest-token') {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      } catch {
+        // ignore
+      }
     }
     try {
       localStorage.removeItem('triptrail_token')
@@ -172,31 +236,41 @@ export default function App() {
     setActiveTab('home')
   }
 
-  // Save new trip to backend
+  // Save new trip to backend or guest storage
   async function handleSaveTrip(newTrip: Trip) {
+    if (token === 'guest-token') {
+      const localTrip: Trip = { ...newTrip, id: Date.now() }
+      setTrips((prev) => [localTrip, ...prev])
+      return
+    }
+
     try {
       const res = await authFetch('/api/trips', {
         method: 'POST',
         body: JSON.stringify(newTrip),
       })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Failed to save journey.')
+      const parsed = await safeJson<Trip>(res)
+      if (!parsed.ok || !parsed.data) {
+        throw new Error(parsed.error || 'Failed to save journey.')
       }
-      const saved = await res.json()
-      setTrips((prev) => [saved, ...prev])
+      setTrips((prev) => [parsed.data!, ...prev])
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not save trip.')
     }
   }
 
-  // Delete trip from backend
+  // Delete trip
   async function handleDeleteTrip(id: number) {
+    if (token === 'guest-token') {
+      setTrips((prev) => prev.filter((t) => t.id !== id))
+      return
+    }
+
     try {
       const res = await authFetch(`/api/trips/${id}`, { method: 'DELETE' })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.error || 'Failed to delete journey.')
+      const parsed = await safeJson(res)
+      if (!parsed.ok) {
+        throw new Error(parsed.error || 'Failed to delete journey.')
       }
       setTrips((prev) => prev.filter((t) => t.id !== id))
     } catch (err) {
@@ -204,56 +278,71 @@ export default function App() {
     }
   }
 
-  // Add Wishlist item to backend
+  // Add Wishlist item
   async function handleAddWishlist(item: { title: string; location: string; season: string; vibe: string }) {
+    if (token === 'guest-token') {
+      const localWish: WishlistItem = { ...item, id: `w-${Date.now()}` }
+      setWishlist((prev) => [localWish, ...prev])
+      return
+    }
+
     const res = await authFetch('/api/wishlists', {
       method: 'POST',
       body: JSON.stringify(item),
     })
-    if (!res.ok) {
-      const err = await res.json()
-      throw new Error(err.error || 'Failed to save wishlist destination.')
+    const parsed = await safeJson<WishlistItem>(res)
+    if (!parsed.ok || !parsed.data) {
+      throw new Error(parsed.error || 'Failed to save wishlist destination.')
     }
-    const saved = await res.json()
-    setWishlist((prev) => [saved, ...prev])
+    setWishlist((prev) => [parsed.data!, ...prev])
   }
 
-  // Remove Wishlist item from backend
+  // Remove Wishlist item
   async function handleRemoveWishlist(id: string | number) {
+    if (token === 'guest-token') {
+      setWishlist((prev) => prev.filter((w) => w.id !== id))
+      return
+    }
+
     const res = await authFetch(`/api/wishlists/${id}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const err = await res.json()
-      throw new Error(err.error || 'Failed to remove wishlist item.')
+    const parsed = await safeJson(res)
+    if (!parsed.ok) {
+      throw new Error(parsed.error || 'Failed to remove wishlist item.')
     }
     setWishlist((prev) => prev.filter((w) => w.id !== id))
   }
 
   // Update profile / password
   async function handleUpdateProfile(name: string, currentPassword?: string, newPassword?: string) {
+    if (token === 'guest-token') {
+      setUser((prev) => (prev ? { ...prev, name } : null))
+      return
+    }
+
     const res = await authFetch('/api/auth/profile', {
       method: 'PUT',
       body: JSON.stringify({ name, currentPassword, newPassword }),
     })
-    const data = await res.json()
-    if (!res.ok) {
-      throw new Error(data.error || 'Profile update failed.')
+    const parsed = await safeJson<{ user: User }>(res)
+    if (!parsed.ok || !parsed.data?.user) {
+      throw new Error(parsed.error || 'Profile update failed.')
     }
-    if (data.user) {
-      setUser(data.user)
-    }
+    setUser(parsed.data.user)
   }
 
   // Check DB ping
   async function handleCheckDb() {
     try {
       const res = await fetch('/api/status')
-      const data = await res.json()
-      setDbStatus({
-        connected: Boolean(data.connected),
-        checked: true,
-        type: data.db?.type,
-        file: data.db?.file,
-      })
+      const parsed = await safeJson<any>(res)
+      if (parsed.ok && parsed.data) {
+        setDbStatus({
+          connected: Boolean(parsed.data.connected),
+          checked: true,
+          type: parsed.data.db?.type,
+          file: parsed.data.db?.file,
+        })
+      }
     } catch {
       setDbStatus({ connected: false, checked: true })
     }
@@ -278,7 +367,7 @@ export default function App() {
 
   // If not authenticated: show Login & Registration Page
   if (!user) {
-    return <AuthPage onAuthSuccess={handleAuthSuccess} />
+    return <AuthPage onAuthSuccess={handleAuthSuccess} onGuestAccess={handleGuestAccess} />
   }
 
   // Authenticated Application

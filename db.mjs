@@ -1,4 +1,5 @@
 import path from 'node:path'
+import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import Database from 'better-sqlite3'
@@ -9,6 +10,7 @@ const root = path.dirname(fileURLToPath(import.meta.url))
 let pool = null
 let sqliteDb = null
 let dbType = 'sqlite'
+let dbFilePath = ''
 
 const databaseUrl = process.env.DATABASE_URL?.trim()
 
@@ -28,12 +30,17 @@ if (databaseUrl) {
 }
 
 if (!pool) {
-  const dbFile = path.join(root, 'data', 'triptrail.db')
-  sqliteDb = new Database(dbFile)
+  const isVercel = Boolean(process.env.VERCEL)
+  const dbDir = isVercel ? '/tmp' : path.join(root, 'data')
+  if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir, { recursive: true })
+  }
+  dbFilePath = path.join(dbDir, 'triptrail.db')
+  sqliteDb = new Database(dbFilePath)
   sqliteDb.pragma('journal_mode = WAL')
   sqliteDb.pragma('foreign_keys = ON')
   dbType = 'sqlite'
-  console.log(`[TripTrail DB] Using persistent SQLite database at: ${dbFile}`)
+  console.log(`[TripTrail DB] Using persistent SQLite database at: ${dbFilePath}`)
 }
 
 /**
@@ -68,14 +75,17 @@ export function getDbInfo() {
   return {
     type: dbType,
     connected: true,
-    file: dbType === 'sqlite' ? 'data/triptrail.db' : 'PostgreSQL Cloud',
+    file: dbType === 'sqlite' ? dbFilePath || 'data/triptrail.db' : 'PostgreSQL Cloud',
   }
 }
+
+let schemaInitialized = false
 
 /**
  * Initialize Tables
  */
 export async function initSchema() {
+  if (schemaInitialized) return
   if (pool) {
     // PostgreSQL schema
     await pool.query(`
@@ -149,5 +159,6 @@ export async function initSchema() {
       CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
     `)
   }
+  schemaInitialized = true
   console.log('[TripTrail DB] Schema initialized successfully.')
 }
