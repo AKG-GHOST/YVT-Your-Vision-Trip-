@@ -21,19 +21,20 @@ export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
     e.preventDefault()
     setError('')
 
+    const cleanEmail = email.trim().toLowerCase()
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email.trim())) {
-      setError('Please provide a valid email address.')
+    if (!emailRegex.test(cleanEmail)) {
+      setError('Please provide a valid email address (e.g. name@domain.com).')
       return
     }
 
     if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
+      setError('Password must be at least 6 characters long.')
       return
     }
 
     if (isRegister && name.trim().length < 2) {
-      setError('Please enter your full name (minimum 2 characters).')
+      setError('Please enter your full name (at least 2 characters).')
       return
     }
 
@@ -42,12 +43,15 @@ export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
     try {
       const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login'
       const payload = isRegister
-        ? { name: name.trim(), email: email.trim(), password }
-        : { email: email.trim(), password }
+        ? { name: name.trim(), email: cleanEmail, password }
+        : { email: cleanEmail, password }
 
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
         body: JSON.stringify(payload),
       })
 
@@ -56,22 +60,33 @@ export default function AuthPage({ onAuthSuccess, onGuestAccess }: Props) {
       try {
         data = rawText ? JSON.parse(rawText) : {}
       } catch {
-        if (!res.ok) {
-          throw new Error(
-            `Server error (${res.status}): Unable to connect to authentication service. Please ensure the backend server is running.`
-          )
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          throw new Error('Authentication server is temporarily unreachable. Please check your connection or try again shortly.')
         } else {
-          throw new Error('Server returned an unexpected non-JSON response.')
+          throw new Error(`Server returned an unexpected response (${res.status}). Please try again.`)
         }
       }
 
       if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed. Please check your credentials.')
+        if (res.status === 404) {
+          throw new Error(data.error || 'No account found with this email. Please verify your email or click Create Account.')
+        } else if (res.status === 401) {
+          throw new Error(data.error || 'Incorrect password. Please verify your password and try again.')
+        } else if (res.status === 409) {
+          throw new Error(data.error || 'An account with this email address already exists. Please sign in.')
+        } else if (res.status >= 500) {
+          throw new Error(data.error || 'Database service is temporarily unavailable. Please try again shortly.')
+        }
+        throw new Error(data.error || 'Authentication failed. Please verify your credentials.')
       }
 
       onAuthSuccess(data.user, data.token)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred.')
+      if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
+        setError('Unable to reach the authentication server. Please check your internet connection.')
+      } else {
+        setError(err instanceof Error ? err.message : 'An unexpected error occurred during authentication.')
+      }
     } finally {
       setLoading(false)
     }

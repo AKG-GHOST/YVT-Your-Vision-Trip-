@@ -57,6 +57,8 @@ export default function App() {
       if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
         headers.set('Content-Type', 'application/json')
       }
+      headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+      headers.set('Pragma', 'no-cache')
       return fetch(url, {
         ...options,
         headers,
@@ -117,7 +119,10 @@ export default function App() {
 
       // Check session with server
       try {
-        const headers: HeadersInit = {}
+        const headers: HeadersInit = {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+        }
         if (savedToken) {
           headers['Authorization'] = `Bearer ${savedToken}`
         }

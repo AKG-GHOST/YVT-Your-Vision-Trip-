@@ -15,6 +15,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'triptrail-super-secret-jwt-key-202
 app.use(express.json())
 app.use(cookieParser())
 
+// Anti-caching middleware for all /api endpoints to prevent CDN/browser cache contamination
+app.use('/api', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, private, max-age=0')
+  res.set('Pragma', 'no-cache')
+  res.set('Expires', '0')
+  res.set('Surrogate-Control', 'no-store')
+  next()
+})
+
 // Ensure schema is initialized before handling requests
 app.use(async (_req, _res, next) => {
   try {
@@ -30,24 +39,52 @@ async function requireAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization
     const token =
+      (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : null) ||
       req.cookies?.token ||
-      (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null)
+      null
 
-    if (!token) {
+    if (!token || token === 'guest-token' || token === 'undefined' || token === 'null') {
       return res.status(401).json({ error: 'Authentication required. Please sign in.' })
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET)
-    const { rows } = await query('SELECT id, name, email, created_at FROM users WHERE id = $1', [decoded.id])
+    let decoded
+    try {
+      decoded = jwt.verify(token, JWT_SECRET)
+    } catch (jwtErr) {
+      if (jwtErr.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Your session has expired. Please sign in again.' })
+      }
+      return res.status(401).json({ error: 'Invalid or expired session. Please sign in again.' })
+    }
+
+    if (!decoded || (!decoded.id && !decoded.email)) {
+      return res.status(401).json({ error: 'Malformed authentication session. Please sign in again.' })
+    }
+
+    // Always query primarily by email to prevent cross-container auto-increment ID collisions
+    const userEmail = (decoded.email || '').trim().toLowerCase()
+    let querySql = ''
+    let queryParams = []
+
+    if (userEmail) {
+      querySql = 'SELECT id, name, email, created_at FROM users WHERE LOWER(email) = LOWER($1)'
+      queryParams = [userEmail]
+    } else {
+      querySql = 'SELECT id, name, email, created_at FROM users WHERE id = $1'
+      queryParams = [decoded.id]
+    }
+
+    const { rows } = await query(querySql, queryParams)
 
     if (!rows || rows.length === 0) {
-      return res.status(401).json({ error: 'User session expired or user no longer exists.' })
+      return res.status(401).json({ error: 'Account session expired or not found. Please sign in again.' })
     }
 
     req.user = rows[0]
     next()
   } catch (err) {
-    return res.status(401).json({ error: 'Invalid or expired session. Please sign in again.' })
+    console.error('[requireAuth Error]', err.message)
+    return res.status(401).json({ error: 'Authentication verification failed. Please sign in again.' })
   }
 }
 
@@ -59,11 +96,11 @@ app.post('/api/auth/register', async (req, res) => {
     const { name, email, password } = req.body
 
     if (!name || name.trim().length < 2) {
-      return res.status(400).json({ error: 'Name must be at least 2 characters long.' })
+      return res.status(400).json({ error: 'Full name must be at least 2 characters long.' })
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!email || !emailRegex.test(email.trim())) {
+    if (!email || !emailRegex.test(String(email).trim())) {
       return res.status(400).json({ error: 'Please provide a valid email address.' })
     }
 
@@ -74,9 +111,9 @@ app.post('/api/auth/register', async (req, res) => {
     const normalizedEmail = email.trim().toLowerCase()
 
     // Check if email already registered
-    const existing = await query('SELECT id FROM users WHERE email = $1', [normalizedEmail])
+    const existing = await query('SELECT id FROM users WHERE LOWER(email) = LOWER($1)', [normalizedEmail])
     if (existing.rows && existing.rows.length > 0) {
-      return res.status(409).json({ error: 'An account with this email address already exists.' })
+      return res.status(409).json({ error: 'An account with this email address already exists. Please sign in.' })
     }
 
     // Hash password
@@ -89,7 +126,7 @@ app.post('/api/auth/register', async (req, res) => {
     )
     const user = insertRes.rows[0]
 
-    // Create token
+    // Create token containing both id and email
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '14d' })
 
     res.cookie('token', token, {
@@ -106,7 +143,7 @@ app.post('/api/auth/register', async (req, res) => {
     })
   } catch (err) {
     console.error('[Register Error]', err)
-    res.status(500).json({ error: 'Failed to create account: ' + err.message })
+    res.status(500).json({ error: 'Failed to create account. Please try again later.' })
   }
 })
 
@@ -115,24 +152,36 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required.' })
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!email || !emailRegex.test(String(email).trim())) {
+      return res.status(400).json({ error: 'Please enter a valid email address.' })
+    }
+
+    if (!password || String(password).length === 0) {
+      return res.status(400).json({ error: 'Password is required.' })
     }
 
     const normalizedEmail = email.trim().toLowerCase()
-    const { rows } = await query('SELECT * FROM users WHERE email = $1', [normalizedEmail])
+    const { rows } = await query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [normalizedEmail])
 
     if (!rows || rows.length === 0) {
-      return res.status(401).json({ error: 'Invalid email or password.' })
+      // Meaningful 404 error when account does not exist
+      return res.status(404).json({
+        error: 'No account found with this email. Please check your email or click Create Account.',
+      })
     }
 
     const user = rows[0]
     const valid = await bcrypt.compare(password, user.password_hash)
 
     if (!valid) {
-      return res.status(401).json({ error: 'Invalid email or password.' })
+      // Meaningful 401 error when password is wrong
+      return res.status(401).json({
+        error: 'Incorrect password. Please verify your password and try again.',
+      })
     }
 
+    // Token includes both ID and email
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '14d' })
 
     res.cookie('token', token, {
@@ -149,7 +198,7 @@ app.post('/api/auth/login', async (req, res) => {
     })
   } catch (err) {
     console.error('[Login Error]', err)
-    res.status(500).json({ error: 'Authentication failed: ' + err.message })
+    res.status(500).json({ error: 'Database service is temporarily unavailable. Please try again shortly.' })
   }
 })
 
@@ -168,10 +217,10 @@ app.post('/api/auth/logout', (_req, res) => {
 app.put('/api/auth/profile', requireAuth, async (req, res) => {
   try {
     const { name, currentPassword, newPassword } = req.body
-    const userId = req.user.id
+    const userEmail = req.user.email.toLowerCase()
 
     if (name && name.trim().length >= 2) {
-      await query('UPDATE users SET name = $1 WHERE id = $2', [name.trim(), userId])
+      await query('UPDATE users SET name = $1 WHERE LOWER(email) = LOWER($2)', [name.trim(), userEmail])
     }
 
     if (newPassword) {
@@ -182,33 +231,36 @@ app.put('/api/auth/profile', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'New password must be at least 6 characters long.' })
       }
 
-      const { rows } = await query('SELECT password_hash FROM users WHERE id = $1', [userId])
+      const { rows } = await query('SELECT password_hash FROM users WHERE LOWER(email) = LOWER($1)', [userEmail])
+      if (!rows || rows.length === 0) {
+        return res.status(404).json({ error: 'User account not found.' })
+      }
       const match = await bcrypt.compare(currentPassword, rows[0].password_hash)
       if (!match) {
         return res.status(401).json({ error: 'Current password incorrect.' })
       }
 
       const newHash = await bcrypt.hash(newPassword, 10)
-      await query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId])
+      await query('UPDATE users SET password_hash = $1 WHERE LOWER(email) = LOWER($2)', [newHash, userEmail])
     }
 
-    const updated = await query('SELECT id, name, email FROM users WHERE id = $1', [userId])
+    const updated = await query('SELECT id, name, email FROM users WHERE LOWER(email) = LOWER($1)', [userEmail])
     res.json({ message: 'Profile updated', user: updated.rows[0] })
   } catch (err) {
     res.status(500).json({ error: 'Profile update failed: ' + err.message })
   }
 })
 
-// ── User Trips CRUD (User Isolated) ──────────────────────────────
+// ── User Trips CRUD (User Isolated by user_email and user_id) ────
 app.get('/api/trips', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, title, location, start_date, end_date, note, mood, created_at FROM trips WHERE user_id = $1 ORDER BY start_date DESC',
-      [req.user.id]
+      'SELECT id, title, location, start_date, end_date, note, mood, created_at FROM trips WHERE LOWER(user_email) = LOWER($1) OR user_id = $2 ORDER BY start_date DESC',
+      [req.user.email, req.user.id]
     )
     res.json(result.rows)
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: 'Failed to load trips: ' + err.message })
   }
 })
 
@@ -219,37 +271,40 @@ app.post('/api/trips', requireAuth, async (req, res) => {
   }
   try {
     const result = await query(
-      'INSERT INTO trips (user_id, title, location, start_date, end_date, note, mood) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, title, location, start_date, end_date, note, mood, created_at',
-      [req.user.id, title.trim(), location.trim(), start_date, end_date, note.trim(), mood]
+      'INSERT INTO trips (user_id, user_email, title, location, start_date, end_date, note, mood) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, title, location, start_date, end_date, note, mood, created_at',
+      [req.user.id, req.user.email.toLowerCase(), title.trim(), location.trim(), start_date, end_date, note.trim(), mood]
     )
     res.status(201).json(result.rows[0])
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: 'Failed to save trip: ' + err.message })
   }
 })
 
 app.delete('/api/trips/:id', requireAuth, async (req, res) => {
   try {
-    const result = await query('DELETE FROM trips WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id])
+    const result = await query(
+      'DELETE FROM trips WHERE id = $1 AND (LOWER(user_email) = LOWER($2) OR user_id = $3)',
+      [req.params.id, req.user.email, req.user.id]
+    )
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Trip not found or unauthorized.' })
     }
     res.json({ deleted: true })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: 'Failed to delete trip: ' + err.message })
   }
 })
 
-// ── User Wishlists CRUD (User Isolated) ───────────────────────────
+// ── User Wishlists CRUD (User Isolated by user_email and user_id) ──
 app.get('/api/wishlists', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, title, location, season, vibe, created_at FROM wishlists WHERE user_id = $1 ORDER BY id DESC',
-      [req.user.id]
+      'SELECT id, title, location, season, vibe, created_at FROM wishlists WHERE LOWER(user_email) = LOWER($1) OR user_id = $2 ORDER BY id DESC',
+      [req.user.email, req.user.id]
     )
     res.json(result.rows)
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: 'Failed to load wishlists: ' + err.message })
   }
 })
 
@@ -260,24 +315,27 @@ app.post('/api/wishlists', requireAuth, async (req, res) => {
   }
   try {
     const result = await query(
-      'INSERT INTO wishlists (user_id, title, location, season, vibe) VALUES ($1,$2,$3,$4,$5) RETURNING id, title, location, season, vibe, created_at',
-      [req.user.id, title.trim(), location.trim(), season.trim(), vibe.trim()]
+      'INSERT INTO wishlists (user_id, user_email, title, location, season, vibe) VALUES ($1,$2,$3,$4,$5) RETURNING id, title, location, season, vibe, created_at',
+      [req.user.id, req.user.email.toLowerCase(), title.trim(), location.trim(), season.trim(), vibe.trim()]
     )
     res.status(201).json(result.rows[0])
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: 'Failed to save wishlist item: ' + err.message })
   }
 })
 
 app.delete('/api/wishlists/:id', requireAuth, async (req, res) => {
   try {
-    const result = await query('DELETE FROM wishlists WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id])
+    const result = await query(
+      'DELETE FROM wishlists WHERE id = $1 AND (LOWER(user_email) = LOWER($2) OR user_id = $3)',
+      [req.params.id, req.user.email, req.user.id]
+    )
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Wishlist item not found or unauthorized.' })
     }
     res.json({ deleted: true })
   } catch (err) {
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: 'Failed to delete wishlist item: ' + err.message })
   }
 })
 

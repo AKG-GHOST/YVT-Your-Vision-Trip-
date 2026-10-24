@@ -100,6 +100,7 @@ export async function initSchema() {
       CREATE TABLE IF NOT EXISTS trips (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_email TEXT,
         title TEXT NOT NULL,
         location TEXT NOT NULL,
         start_date DATE NOT NULL,
@@ -112,6 +113,7 @@ export async function initSchema() {
       CREATE TABLE IF NOT EXISTS wishlists (
         id SERIAL PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_email TEXT,
         title TEXT NOT NULL,
         location TEXT NOT NULL,
         season TEXT DEFAULT 'Anytime',
@@ -120,8 +122,17 @@ export async function initSchema() {
       );
 
       CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);
+      CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(user_email);
       CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
+      CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(user_email);
+      CREATE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email));
     `)
+
+    // Safe column migrations if tables existed previously
+    try {
+      await pool.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS user_email TEXT;')
+      await pool.query('ALTER TABLE wishlists ADD COLUMN IF NOT EXISTS user_email TEXT;')
+    } catch (_) {}
   } else {
     // SQLite schema
     sqliteDb.exec(`
@@ -136,6 +147,7 @@ export async function initSchema() {
       CREATE TABLE IF NOT EXISTS trips (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_email TEXT,
         title TEXT NOT NULL,
         location TEXT NOT NULL,
         start_date TEXT NOT NULL,
@@ -148,6 +160,7 @@ export async function initSchema() {
       CREATE TABLE IF NOT EXISTS wishlists (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_email TEXT,
         title TEXT NOT NULL,
         location TEXT NOT NULL,
         season TEXT DEFAULT 'Anytime',
@@ -156,8 +169,18 @@ export async function initSchema() {
       );
 
       CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);
+      CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(user_email);
       CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
+      CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(user_email);
     `)
+
+    // Safe column migrations if tables existed previously in SQLite
+    try {
+      sqliteDb.exec('ALTER TABLE trips ADD COLUMN user_email TEXT;')
+    } catch (_) {}
+    try {
+      sqliteDb.exec('ALTER TABLE wishlists ADD COLUMN user_email TEXT;')
+    } catch (_) {}
   }
   schemaInitialized = true
   console.log('[TripTrail DB] Schema initialized successfully.')
