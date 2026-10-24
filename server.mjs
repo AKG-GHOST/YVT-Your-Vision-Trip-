@@ -12,6 +12,12 @@ const port = process.env.PORT || 8787
 const root = path.dirname(fileURLToPath(import.meta.url))
 const JWT_SECRET = process.env.JWT_SECRET || 'triptrail-super-secret-jwt-key-2026'
 
+if (!process.env.JWT_SECRET && (process.env.NODE_ENV === 'production' || process.env.VERCEL)) {
+  console.warn(
+    '[SECURITY WARNING] JWT_SECRET is not set in environment variables! Using default secret is insecure in production. Set JWT_SECRET in your Vercel project settings.'
+  )
+}
+
 app.use(express.json())
 app.use(cookieParser())
 
@@ -23,6 +29,32 @@ app.use('/api', (_req, res, next) => {
   res.set('Surrogate-Control', 'no-store')
   next()
 })
+
+// Rate limiter for authentication endpoints (prevents brute-force / credential stuffing)
+const authAttempts = new Map()
+function authRateLimiter(maxAttempts = 20, windowMs = 15 * 60 * 1000) {
+  return (req, res, next) => {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || '127.0.0.1'
+    const now = Date.now()
+    const entry = authAttempts.get(ip) || { count: 0, resetAt: now + windowMs }
+
+    if (now > entry.resetAt) {
+      entry.count = 0
+      entry.resetAt = now + windowMs
+    }
+
+    entry.count++
+    authAttempts.set(ip, entry)
+
+    if (entry.count > maxAttempts) {
+      return res.status(429).json({
+        error: 'Too many authentication attempts. Please wait 15 minutes before trying again.',
+      })
+    }
+
+    next()
+  }
+}
 
 // Ensure schema is initialized before handling requests
 app.use(async (_req, _res, next) => {
@@ -91,7 +123,7 @@ async function requireAuth(req, res, next) {
 // ── Auth Routes ───────────────────────────────────────────────────
 
 // Register
-app.post('/api/auth/register', async (req, res) => {
+app.post('/api/auth/register', authRateLimiter(20, 15 * 60 * 1000), async (req, res) => {
   try {
     const { name, email, password } = req.body
 
@@ -148,7 +180,7 @@ app.post('/api/auth/register', async (req, res) => {
 })
 
 // Login
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', authRateLimiter(20, 15 * 60 * 1000), async (req, res) => {
   try {
     const { email, password } = req.body
 
@@ -251,11 +283,11 @@ app.put('/api/auth/profile', requireAuth, async (req, res) => {
   }
 })
 
-// ── User Trips CRUD (User Isolated by user_email and user_id) ────
+// ── User Trips CRUD (Strict User Isolation) ──────────────────────
 app.get('/api/trips', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, title, location, start_date, end_date, note, mood, created_at FROM trips WHERE LOWER(user_email) = LOWER($1) OR user_id = $2 ORDER BY start_date DESC',
+      'SELECT id, title, location, start_date, end_date, note, mood, created_at FROM trips WHERE (user_email IS NOT NULL AND LOWER(user_email) = LOWER($1)) OR (user_email IS NULL AND user_id = $2) ORDER BY start_date DESC',
       [req.user.email, req.user.id]
     )
     res.json(result.rows)
@@ -283,7 +315,7 @@ app.post('/api/trips', requireAuth, async (req, res) => {
 app.delete('/api/trips/:id', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'DELETE FROM trips WHERE id = $1 AND (LOWER(user_email) = LOWER($2) OR user_id = $3)',
+      'DELETE FROM trips WHERE id = $1 AND ((user_email IS NOT NULL AND LOWER(user_email) = LOWER($2)) OR (user_email IS NULL AND user_id = $3))',
       [req.params.id, req.user.email, req.user.id]
     )
     if (result.rowCount === 0) {
@@ -295,11 +327,11 @@ app.delete('/api/trips/:id', requireAuth, async (req, res) => {
   }
 })
 
-// ── User Wishlists CRUD (User Isolated by user_email and user_id) ──
+// ── User Wishlists CRUD (Strict User Isolation) ───────────────────
 app.get('/api/wishlists', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'SELECT id, title, location, season, vibe, created_at FROM wishlists WHERE LOWER(user_email) = LOWER($1) OR user_id = $2 ORDER BY id DESC',
+      'SELECT id, title, location, season, vibe, created_at FROM wishlists WHERE (user_email IS NOT NULL AND LOWER(user_email) = LOWER($1)) OR (user_email IS NULL AND user_id = $2) ORDER BY id DESC',
       [req.user.email, req.user.id]
     )
     res.json(result.rows)
@@ -327,7 +359,7 @@ app.post('/api/wishlists', requireAuth, async (req, res) => {
 app.delete('/api/wishlists/:id', requireAuth, async (req, res) => {
   try {
     const result = await query(
-      'DELETE FROM wishlists WHERE id = $1 AND (LOWER(user_email) = LOWER($2) OR user_id = $3)',
+      'DELETE FROM wishlists WHERE id = $1 AND ((user_email IS NOT NULL AND LOWER(user_email) = LOWER($2)) OR (user_email IS NULL AND user_id = $3))',
       [req.params.id, req.user.email, req.user.id]
     )
     if (result.rowCount === 0) {

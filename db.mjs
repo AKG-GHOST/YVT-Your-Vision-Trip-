@@ -16,12 +16,21 @@ const databaseUrl = process.env.DATABASE_URL?.trim()
 
 if (databaseUrl) {
   try {
+    // Automatically detect SSL requirement for Cloud Postgres (Neon, Supabase, Render, AWS, sslmode=require)
+    const isCloud = /neon\.tech|supabase\.co|render\.com|aws|pooler/i.test(databaseUrl)
+    const forceSsl =
+      process.env.DATABASE_SSL === 'true' ||
+      isCloud ||
+      databaseUrl.includes('sslmode=require')
+
     pool = new Pool({
       connectionString: databaseUrl,
-      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+      ssl: forceSsl ? { rejectUnauthorized: false } : undefined,
+      max: 10,
+      connectionTimeoutMillis: 5000,
     })
     dbType = 'postgres'
-    console.log('[TripTrail DB] Configured for PostgreSQL')
+    console.log(`[TripTrail DB] Configured for PostgreSQL (Cloud SSL: ${forceSsl})`)
   } catch (err) {
     console.error('[TripTrail DB] Failed to initialize PostgreSQL pool, falling back to SQLite:', err.message)
     pool = null
@@ -75,7 +84,7 @@ export function getDbInfo() {
   return {
     type: dbType,
     connected: true,
-    file: dbType === 'sqlite' ? dbFilePath || 'data/triptrail.db' : 'PostgreSQL Cloud',
+    storage: dbType === 'sqlite' ? 'SQLite (Local)' : 'PostgreSQL Cloud',
   }
 }
 
