@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Header from './components/Header'
 import HeroBanner from './components/HeroBanner'
 import RoutePlannerCard from './components/RoutePlannerCard'
@@ -9,44 +9,80 @@ import TripDialog from './components/TripDialog'
 import TripDetailModal from './components/TripDetailModal'
 import WishlistView from './components/WishlistView'
 import ProfileView from './components/ProfileView'
-import { demoTrips, demoWishlist } from './data'
-import type { Trip, Tab, WishlistItem } from './types'
+import AuthPage from './components/AuthPage'
+import type { User, Trip, Tab, WishlistItem } from './types'
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('home')
-  const [trips, setTrips] = useState<Trip[]>(() => {
+  const [user, setUser] = useState<User | null>(null)
+  const [token, setToken] = useState<string | null>(() => {
     try {
-      const saved = localStorage.getItem('triptrail_trips')
-      if (saved) return JSON.parse(saved)
+      return localStorage.getItem('triptrail_token')
     } catch {
-      // ignore
+      return null
     }
-    return demoTrips
   })
+  const [authLoading, setAuthLoading] = useState(true)
 
-  const [wishlist, setWishlist] = useState<WishlistItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('triptrail_wishlist')
-      if (saved) return JSON.parse(saved)
-    } catch {
-      // ignore
-    }
-    return demoWishlist
-  })
+  const [activeTab, setActiveTab] = useState<Tab>('home')
+  const [trips, setTrips] = useState<Trip[]>([])
+  const [wishlist, setWishlist] = useState<WishlistItem[]>([])
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
-  const [dbStatus, setDbStatus] = useState<{ connected: boolean; checked: boolean; version?: string }>({
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; checked: boolean; type?: string; file?: string }>({
     connected: false,
     checked: false,
   })
 
-  // Synchronize with API on initial mount
+  // Helper for authenticated fetch
+  const authFetch = useCallback(
+    async (url: string, options: RequestInit = {}) => {
+      const headers = new Headers(options.headers || {})
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`)
+      }
+      if (!headers.has('Content-Type') && options.body && typeof options.body === 'string') {
+        headers.set('Content-Type', 'application/json')
+      }
+      return fetch(url, {
+        ...options,
+        headers,
+        credentials: 'include',
+      })
+    },
+    [token]
+  )
+
+  // Load user data (Trips & Wishlist)
+  const loadUserData = useCallback(async () => {
+    try {
+      const [tripsRes, wishRes] = await Promise.all([
+        authFetch('/api/trips'),
+        authFetch('/api/wishlists'),
+      ])
+
+      if (tripsRes.ok) {
+        const tripsData = await tripsRes.json()
+        setTrips(Array.isArray(tripsData) ? tripsData : [])
+      }
+
+      if (wishRes.ok) {
+        const wishData = await wishRes.json()
+        setWishlist(Array.isArray(wishData) ? wishData : [])
+      }
+    } catch (err) {
+      console.error('[Load User Data Error]', err)
+    }
+  }, [authFetch])
+
+  // Check initial authentication state & DB status
   useEffect(() => {
-    async function init() {
-      // Check database status
+    async function checkAuthAndDb() {
+      setAuthLoading(true)
+
+      // Check DB Status
       try {
         const statusRes = await fetch('/api/status')
         if (statusRes.ok) {
@@ -54,78 +90,160 @@ export default function App() {
           setDbStatus({
             connected: Boolean(statusData.connected),
             checked: true,
-            version: statusData.version,
+            type: statusData.db?.type,
+            file: statusData.db?.file,
           })
         }
       } catch {
         setDbStatus({ connected: false, checked: true })
       }
 
-      // Fetch live trips if available
+      // Check session
       try {
-        const tripsRes = await fetch('/api/trips')
-        if (tripsRes.ok) {
-          const tripsData = await tripsRes.json()
-          if (Array.isArray(tripsData) && tripsData.length > 0) {
-            setTrips(tripsData)
-          }
+        const headers: HeadersInit = {}
+        const savedToken = localStorage.getItem('triptrail_token')
+        if (savedToken) {
+          headers['Authorization'] = `Bearer ${savedToken}`
+        }
+
+        const meRes = await fetch('/api/auth/me', {
+          headers,
+          credentials: 'include',
+        })
+
+        if (meRes.ok) {
+          const meData = await meRes.json()
+          setUser(meData.user)
+          if (savedToken) setToken(savedToken)
+        } else {
+          // Token expired or invalid
+          setUser(null)
+          setToken(null)
+          localStorage.removeItem('triptrail_token')
         }
       } catch {
-        // use local storage trips
+        setUser(null)
+        setToken(null)
+      } finally {
+        setAuthLoading(false)
       }
     }
-    init()
+
+    checkAuthAndDb()
   }, [])
 
-  // Save to localStorage whenever trips change
+  // Load user-specific data once authenticated
   useEffect(() => {
+    if (user && token) {
+      loadUserData()
+    } else {
+      setTrips([])
+      setWishlist([])
+    }
+  }, [user, token, loadUserData])
+
+  // Handle successful login or register
+  function handleAuthSuccess(authenticatedUser: User, receivedToken: string) {
     try {
-      localStorage.setItem('triptrail_trips', JSON.stringify(trips))
+      localStorage.setItem('triptrail_token', receivedToken)
     } catch {
       // ignore
     }
-  }, [trips])
+    setToken(receivedToken)
+    setUser(authenticatedUser)
+  }
 
-  // Save wishlist to localStorage
-  useEffect(() => {
+  // Handle Logout
+  async function handleLogout() {
     try {
-      localStorage.setItem('triptrail_wishlist', JSON.stringify(wishlist))
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
     } catch {
       // ignore
     }
-  }, [wishlist])
+    try {
+      localStorage.removeItem('triptrail_token')
+    } catch {
+      // ignore
+    }
+    setToken(null)
+    setUser(null)
+    setTrips([])
+    setWishlist([])
+    setActiveTab('home')
+  }
 
-  // Save a new trip
+  // Save new trip to backend
   async function handleSaveTrip(newTrip: Trip) {
     try {
-      const res = await fetch('/api/trips', {
+      const res = await authFetch('/api/trips', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newTrip),
       })
-      if (res.ok) {
-        const saved = await res.json()
-        setTrips((prev) => [saved, ...prev])
-        return
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to save journey.')
       }
-    } catch {
-      // fallback local
+      const saved = await res.json()
+      setTrips((prev) => [saved, ...prev])
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not save trip.')
     }
-    const localTrip: Trip = { ...newTrip, id: Date.now() }
-    setTrips((prev) => [localTrip, ...prev])
   }
 
-  // Delete a trip
+  // Delete trip from backend
   async function handleDeleteTrip(id: number) {
     try {
-      await fetch(`/api/trips/${id}`, { method: 'DELETE' })
-    } catch {
-      // ignore
+      const res = await authFetch(`/api/trips/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.error || 'Failed to delete journey.')
+      }
+      setTrips((prev) => prev.filter((t) => t.id !== id))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not delete trip.')
     }
-    setTrips((prev) => prev.filter((t) => t.id !== id))
   }
 
-  // Test Ping DB
+  // Add Wishlist item to backend
+  async function handleAddWishlist(item: { title: string; location: string; season: string; vibe: string }) {
+    const res = await authFetch('/api/wishlists', {
+      method: 'POST',
+      body: JSON.stringify(item),
+    })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.error || 'Failed to save wishlist destination.')
+    }
+    const saved = await res.json()
+    setWishlist((prev) => [saved, ...prev])
+  }
+
+  // Remove Wishlist item from backend
+  async function handleRemoveWishlist(id: string | number) {
+    const res = await authFetch(`/api/wishlists/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.error || 'Failed to remove wishlist item.')
+    }
+    setWishlist((prev) => prev.filter((w) => w.id !== id))
+  }
+
+  // Update profile / password
+  async function handleUpdateProfile(name: string, currentPassword?: string, newPassword?: string) {
+    const res = await authFetch('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ name, currentPassword, newPassword }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      throw new Error(data.error || 'Profile update failed.')
+    }
+    if (data.user) {
+      setUser(data.user)
+    }
+  }
+
+  // Check DB ping
   async function handleCheckDb() {
     try {
       const res = await fetch('/api/status')
@@ -133,26 +251,12 @@ export default function App() {
       setDbStatus({
         connected: Boolean(data.connected),
         checked: true,
-        version: data.version,
+        type: data.db?.type,
+        file: data.db?.file,
       })
     } catch {
       setDbStatus({ connected: false, checked: true })
     }
-  }
-
-  // Reset demo data
-  function handleResetDemo() {
-    setTrips(demoTrips)
-    setWishlist(demoWishlist)
-  }
-
-  // Wishlist handlers
-  function handleAddWishlist(item: WishlistItem) {
-    setWishlist((prev) => [item, ...prev])
-  }
-
-  function handleRemoveWishlist(id: string) {
-    setWishlist((prev) => prev.filter((w) => w.id !== id))
   }
 
   function scrollToRoutePlanner() {
@@ -162,13 +266,32 @@ export default function App() {
     }, 100)
   }
 
+  // Initial Auth Loading Screen
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#FAF8F5] flex flex-col items-center justify-center text-[#2B231D]">
+        <div className="w-8 h-8 rounded-full border-2 border-[#E8654A] border-t-transparent animate-spin mb-3" />
+        <p className="text-xs font-mono tracking-widest text-[#8A7968] uppercase">Loading TripTrail...</p>
+      </div>
+    )
+  }
+
+  // If not authenticated: show Login & Registration Page
+  if (!user) {
+    return <AuthPage onAuthSuccess={handleAuthSuccess} />
+  }
+
+  // Authenticated Application
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-[#2B231D] selection:bg-[#E8654A] selection:text-white">
       {/* Top Header */}
       <Header
+        user={user}
         dbStatus={dbStatus}
         showSearch={showSearch}
         onOpenSearch={() => setShowSearch(!showSearch)}
+        onLogout={handleLogout}
+        onOpenProfile={() => setActiveTab('profile')}
       />
 
       {/* Global Search Input Drawer */}
@@ -179,7 +302,7 @@ export default function App() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by city, title, or memories..."
+            placeholder="Search your journeys by city, title, or reflections..."
             className="w-full px-4 py-2.5 rounded-xl border border-[#DDD2C4] bg-white text-xs outline-none focus:border-[#E8654A] shadow-2xs"
           />
         </div>
@@ -191,6 +314,7 @@ export default function App() {
           <div className="py-4 space-y-2">
             {/* Tinker-Inspired Hero Banner */}
             <HeroBanner
+              user={user}
               tripCount={trips.length}
               onCapture={() => setDialogOpen(true)}
               onPlanRoute={scrollToRoutePlanner}
@@ -203,7 +327,7 @@ export default function App() {
             <TripList
               trips={trips}
               onSelectTrip={(t) => setSelectedTrip(t)}
-              onDeleteTrip={handleDeleteTrip}
+              onCaptureTrip={() => setDialogOpen(true)}
               searchQuery={searchQuery}
             />
 
@@ -217,7 +341,7 @@ export default function App() {
             <TripList
               trips={trips}
               onSelectTrip={(t) => setSelectedTrip(t)}
-              onDeleteTrip={handleDeleteTrip}
+              onCaptureTrip={() => setDialogOpen(true)}
               searchQuery={searchQuery}
             />
           </div>
@@ -233,10 +357,13 @@ export default function App() {
 
         {activeTab === 'profile' && (
           <ProfileView
+            user={user}
             dbStatus={dbStatus}
             onCheckDb={handleCheckDb}
             trips={trips}
-            onResetDemo={handleResetDemo}
+            wishlist={wishlist}
+            onLogout={handleLogout}
+            onUpdateProfile={handleUpdateProfile}
           />
         )}
       </main>
@@ -244,7 +371,7 @@ export default function App() {
       {/* Sticky Bottom Navigation */}
       <BottomNav
         active={activeTab}
-        onTab={(tab) => {
+        onTab={(tab: Tab) => {
           setActiveTab(tab)
           window.scrollTo({ top: 0, behavior: 'smooth' })
         }}

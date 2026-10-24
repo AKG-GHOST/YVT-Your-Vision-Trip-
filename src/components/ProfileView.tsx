@@ -1,18 +1,36 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Database, Download, RefreshCw, Smartphone, Check } from 'lucide-react'
-import type { Trip } from '../types'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Database, Download, RefreshCw, Smartphone, Check, LogOut, Loader2, ShieldCheck } from 'lucide-react'
+import type { User as UserType, Trip, WishlistItem } from '../types'
 
 type Props = {
-  dbStatus: { connected: boolean; checked: boolean; version?: string; error?: string }
+  user: UserType | null
+  dbStatus: { connected: boolean; checked: boolean; type?: string; file?: string }
   onCheckDb: () => void
   trips: Trip[]
-  onResetDemo: () => void
+  wishlist: WishlistItem[]
+  onLogout: () => void
+  onUpdateProfile: (name: string, currentPassword?: string, newPassword?: string) => Promise<void>
 }
 
-export default function ProfileView({ dbStatus, onCheckDb, trips, onResetDemo }: Props) {
+export default function ProfileView({
+  user,
+  dbStatus,
+  onCheckDb,
+  trips,
+  wishlist,
+  onLogout,
+  onUpdateProfile,
+}: Props) {
   const [downloaded, setDownloaded] = useState(false)
   const [checking, setChecking] = useState(false)
+  
+  // Profile update state
+  const [name, setName] = useState(user?.name || '')
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   async function handleCheck() {
     setChecking(true)
@@ -21,10 +39,16 @@ export default function ProfileView({ dbStatus, onCheckDb, trips, onResetDemo }:
   }
 
   function exportTripsJSON() {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(trips, null, 2))
+    const backupData = {
+      user: { name: user?.name, email: user?.email },
+      exported_at: new Date().toISOString(),
+      trips,
+      wishlist,
+    }
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2))
     const downloadAnchor = document.createElement('a')
     downloadAnchor.setAttribute('href', dataStr)
-    downloadAnchor.setAttribute('download', `triptrail-backup-${new Date().toISOString().split('T')[0]}.json`)
+    downloadAnchor.setAttribute('download', `triptrail-${user?.email || 'backup'}-${new Date().toISOString().split('T')[0]}.json`)
     document.body.appendChild(downloadAnchor)
     downloadAnchor.click()
     downloadAnchor.remove()
@@ -32,39 +56,175 @@ export default function ProfileView({ dbStatus, onCheckDb, trips, onResetDemo }:
     setTimeout(() => setDownloaded(false), 2500)
   }
 
+  async function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault()
+    setProfileMsg(null)
+    setSaving(true)
+
+    try {
+      await onUpdateProfile(name, currentPassword || undefined, newPassword || undefined)
+      setProfileMsg({ type: 'success', text: 'Profile updated successfully.' })
+      setCurrentPassword('')
+      setNewPassword('')
+    } catch (err) {
+      setProfileMsg({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Failed to update profile.',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
-    <div className="px-4 sm:px-6 py-6 pb-24 max-w-2xl mx-auto space-y-6">
+    <div className="px-4 sm:px-6 py-6 pb-28 max-w-2xl mx-auto space-y-6">
       {/* Header */}
       <div>
         <span className="text-[10px] font-mono tracking-widest text-[#A89682] uppercase">
-          SYSTEM & STORAGE
+          ACCOUNT & SECURITY
         </span>
         <h1 className="text-2xl sm:text-3xl font-serif font-bold text-[#2B231D] mt-1">
-          Traveler Hub
+          Traveler Profile
         </h1>
       </div>
 
-      {/* Database & Cloud State Card */}
+      {/* User Card */}
+      {user && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-6 rounded-3xl bg-white border border-[#EDE5DB] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-14 h-14 rounded-2xl bg-[#2B231D] text-white text-xl font-bold flex items-center justify-center shadow-xs">
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-[#2B231D]">{user.name}</h2>
+              <p className="text-xs text-[#8A7968] font-mono">{user.email}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded-md bg-[#FAF8F5] border border-[#EDE5DB] text-[10px] font-mono text-[#6B5D4F]">
+                  {trips.length} {trips.length === 1 ? 'Trip' : 'Trips'} Logged
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-[#FAF8F5] border border-[#EDE5DB] text-[10px] font-mono text-[#6B5D4F]">
+                  {wishlist.length} Wishlist {wishlist.length === 1 ? 'Pin' : 'Pins'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              if (window.confirm('Are you sure you want to sign out?')) {
+                onLogout()
+              }
+            }}
+            className="self-start sm:self-center inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
+        </motion.div>
+      )}
+
+      {/* Profile & Password Update Form */}
+      <motion.form
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        onSubmit={handleSaveProfile}
+        className="p-6 rounded-3xl bg-white border border-[#EDE5DB] shadow-xs space-y-4"
+      >
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-[#E8654A]" />
+          <h3 className="text-sm font-semibold text-[#2B231D]">Security & Account Settings</h3>
+        </div>
+
+        <AnimatePresence>
+          {profileMsg && (
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              className={`p-3 rounded-xl text-xs leading-relaxed ${
+                profileMsg.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-rose-50 text-rose-600 border border-rose-200'
+              }`}
+            >
+              {profileMsg.text}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div>
+          <label className="block text-xs font-medium text-[#5C4D3C] mb-1">
+            Display Name
+          </label>
+          <input
+            type="text"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3.5 py-2.5 rounded-xl border border-[#DDD2C4] bg-[#FAF8F5] text-xs outline-none focus:border-[#E8654A]"
+          />
+        </div>
+
+        <div className="pt-2 border-t border-[#F5F0EA]">
+          <p className="text-[11px] font-mono text-[#A89682] uppercase mb-2">Change Password (Optional)</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] text-[#8A7968] mb-1">Current Password</label>
+              <input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Current password"
+                className="w-full px-3.5 py-2 rounded-xl border border-[#DDD2C4] bg-[#FAF8F5] text-xs outline-none focus:border-[#E8654A]"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] text-[#8A7968] mb-1">New Password (Min 6 chars)</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="New password"
+                className="w-full px-3.5 py-2 rounded-xl border border-[#DDD2C4] bg-[#FAF8F5] text-xs outline-none focus:border-[#E8654A]"
+              />
+            </div>
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="py-2.5 px-5 rounded-xl bg-[#2B231D] text-white text-xs font-semibold hover:bg-black transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Update Settings</span>}
+        </button>
+      </motion.form>
+
+      {/* Database State Card */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
         className="p-5 rounded-3xl bg-white border border-[#EDE5DB] shadow-xs space-y-4"
       >
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
-              dbStatus.connected ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
-            }`}>
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <Database className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-sm font-semibold text-[#2B231D]">
-                {dbStatus.connected ? 'PostgreSQL Live Connected' : 'Offline / Local Persistence'}
+                {dbStatus.type === 'postgres' ? 'PostgreSQL Relational Storage' : 'SQLite Relational Storage'}
               </h3>
               <p className="text-xs text-[#8A7968]">
-                {dbStatus.connected
-                  ? 'Trips sync directly to your relational database'
-                  : 'Running locally via browser & memory sync'}
+                {dbStatus.type === 'postgres'
+                  ? 'All user accounts and records sync to PostgreSQL cloud.'
+                  : `Persistent storage saved in ${dbStatus.file || 'data/triptrail.db'}`}
               </p>
             </div>
           </div>
@@ -79,64 +239,46 @@ export default function ProfileView({ dbStatus, onCheckDb, trips, onResetDemo }:
           </button>
         </div>
 
-        {dbStatus.version && (
-          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#EDE5DB] text-[11px] font-mono text-[#5C4D3C] truncate">
-            {dbStatus.version}
-          </div>
-        )}
-
-        {/* Database setup instructions toggle */}
-        <div className="p-3 rounded-xl bg-[#F5F0EA]/60 border border-[#EDE5DB] text-xs text-[#6B5D4F] leading-relaxed">
-          <span className="font-semibold text-[#2B231D]">Cloud Deployment Note:</span> To connect PostgreSQL, simply define <code className="px-1.5 py-0.5 rounded bg-white text-[11px] font-mono">DATABASE_URL=postgresql://...</code> in your environment variables.
+        <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#EDE5DB] text-xs text-[#6B5D4F] leading-relaxed">
+          <span className="font-semibold text-[#2B231D]">Cloud Deployment Ready:</span> When deploying on Render/Railway, define <code className="px-1.5 py-0.5 rounded bg-white text-[11px] font-mono">DATABASE_URL=postgresql://...</code> to automatically switch to hosted PostgreSQL.
         </div>
       </motion.div>
 
-      {/* Data Management Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="p-5 rounded-3xl bg-white border border-[#EDE5DB] shadow-xs space-y-4"
-      >
-        <h3 className="text-sm font-semibold text-[#2B231D]">Data Management & Backup</h3>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            onClick={exportTripsJSON}
-            className="flex-1 py-2.5 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F5F0EA] border border-[#EDE5DB] text-xs font-semibold text-[#2B231D] flex items-center justify-center gap-2 transition-colors"
-          >
-            {downloaded ? (
-              <>
-                <Check className="w-4 h-4 text-emerald-600" />
-                <span>Downloaded Backup!</span>
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4 text-[#E8654A]" />
-                <span>Export Journal as JSON</span>
-              </>
-            )}
-          </button>
-
-          <button
-            onClick={() => {
-              if (window.confirm('Reset journal with sample trips?')) {
-                onResetDemo()
-              }
-            }}
-            className="py-2.5 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F5F0EA] border border-[#EDE5DB] text-xs font-medium text-[#8A7968] flex items-center justify-center gap-2 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Restore Sample Trips</span>
-          </button>
-        </div>
-      </motion.div>
-
-      {/* PWA / Standalone Installation Card */}
+      {/* Data Export Card */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
+        className="p-5 rounded-3xl bg-white border border-[#EDE5DB] shadow-xs flex items-center justify-between gap-4"
+      >
+        <div>
+          <h3 className="text-sm font-semibold text-[#2B231D]">Export Your Travel Archive</h3>
+          <p className="text-xs text-[#8A7968] mt-0.5">Download a JSON backup of your journeys and wishlist.</p>
+        </div>
+
+        <button
+          onClick={exportTripsJSON}
+          className="py-2.5 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F5F0EA] border border-[#EDE5DB] text-xs font-semibold text-[#2B231D] flex items-center gap-2 transition-colors flex-shrink-0"
+        >
+          {downloaded ? (
+            <>
+              <Check className="w-4 h-4 text-emerald-600" />
+              <span>Downloaded</span>
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4 text-[#E8654A]" />
+              <span>Export JSON</span>
+            </>
+          )}
+        </button>
+      </motion.div>
+
+      {/* Standalone Installation Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25 }}
         className="p-5 rounded-3xl bg-gradient-to-br from-[#EFE5DA] to-[#FAF8F5] border border-[#DDD2C4] shadow-xs flex items-start gap-4"
       >
         <div className="w-10 h-10 rounded-2xl bg-[#E8654A] text-white flex items-center justify-center flex-shrink-0 shadow-sm">
@@ -145,7 +287,7 @@ export default function ProfileView({ dbStatus, onCheckDb, trips, onResetDemo }:
         <div>
           <h3 className="text-sm font-semibold text-[#2B231D]">Install as Native App (PWA)</h3>
           <p className="mt-1 text-xs text-[#6B5D4F] leading-relaxed">
-            TripTrail includes full offline Service Worker caching and an app manifest. Tap your browser's <strong>"Share" → "Add to Home Screen"</strong> on iOS, or <strong>"Install App"</strong> on Chrome.
+            TripTrail supports standalone PWA mode. Tap your browser's <strong>"Share" → "Add to Home Screen"</strong> on mobile devices for full-screen offline experience.
           </p>
         </div>
       </motion.div>

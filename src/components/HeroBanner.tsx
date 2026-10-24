@@ -1,13 +1,17 @@
 import { motion } from 'framer-motion'
 import { Sparkles, Compass, Plus, ArrowRight } from 'lucide-react'
+import type { User } from '../types'
 
 type Props = {
+  user: User | null
   onCapture: () => void
   onPlanRoute: () => void
   tripCount: number
 }
 
-export default function HeroBanner({ onCapture, onPlanRoute, tripCount }: Props) {
+export default function HeroBanner({ user, onCapture, onPlanRoute, tripCount }: Props) {
+  const firstName = user?.name ? user.name.split(' ')[0] : 'Traveler'
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 15 }}
@@ -26,7 +30,7 @@ export default function HeroBanner({ onCapture, onPlanRoute, tripCount }: Props)
           }}
         />
 
-        {/* Minimalist Graphic Elements mimicking the Ceramic Vase and Watch aesthetic */}
+        {/* Minimalist Graphic Elements mimicking Ceramic Vase and Watch */}
         <div className="absolute right-4 sm:right-10 top-6 sm:top-8 pointer-events-none select-none flex items-center gap-3">
           {/* Speckled Ceramic Vase Silhouette */}
           <div className="relative w-16 h-24 sm:w-20 sm:h-28 rounded-[50%_50%_45%_45%] bg-[#F7F4EE] shadow-md border border-[#E8E2D6] overflow-hidden flex flex-col items-center pt-2">
@@ -63,7 +67,7 @@ export default function HeroBanner({ onCapture, onPlanRoute, tripCount }: Props)
         {/* Top Tag */}
         <div className="relative z-10">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/70 backdrop-blur-md text-[10px] font-mono tracking-widest text-[#5C4C3E] uppercase shadow-xs border border-white/50">
-            <Sparkles className="w-3 h-3 text-[#E8654A]" /> Issue Nº 01 · 2026
+            <Sparkles className="w-3 h-3 text-[#E8654A]" /> {firstName}'s Journal · 2026
           </span>
         </div>
 
@@ -78,7 +82,7 @@ export default function HeroBanner({ onCapture, onPlanRoute, tripCount }: Props)
           </p>
         </div>
 
-        {/* Action Buttons with Frosted Glass look (just like the "Build Yours" pill) */}
+        {/* Action Buttons with Frosted Glass look */}
         <div className="relative z-10 mt-6 sm:mt-8 flex flex-wrap items-center gap-3">
           <button
             onClick={onCapture}
@@ -100,10 +104,10 @@ export default function HeroBanner({ onCapture, onPlanRoute, tripCount }: Props)
 
         {/* Bottom micro stats pill */}
         <div className="relative z-10 mt-5 pt-4 border-t border-[#D9C8B6]/60 flex items-center justify-between text-[10px] font-mono text-[#7A6A5B]">
-          <span>{tripCount} JOURNEYS RECORDED</span>
+          <span>{tripCount} {tripCount === 1 ? 'JOURNEY RECORDED' : 'JOURNEYS RECORDED'}</span>
           <span className="flex items-center gap-1.5 text-[#2E7D32]">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#2E7D32] animate-pulse" />
-            READY OFFLINE
+            <span className="w-1.5 h-1.5 rounded-full bg-[#2E7D32]" />
+            SYNCED TO ACCOUNT
           </span>
         </div>
 

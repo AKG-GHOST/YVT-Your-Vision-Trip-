@@ -1,21 +1,275 @@
 import 'dotenv/config'
 import express from 'express'
-import pg from 'pg'
+import cookieParser from 'cookie-parser'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
+import { query, initSchema, getDbInfo } from './db.mjs'
 
-const { Pool } = pg
 const app = express()
 const port = process.env.PORT || 8787
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-    })
-  : null
 const root = path.dirname(fileURLToPath(import.meta.url))
+const JWT_SECRET = process.env.JWT_SECRET || 'triptrail-super-secret-jwt-key-2026'
 
 app.use(express.json())
+app.use(cookieParser())
+
+// ── Auth Middleware ──────────────────────────────────────────────
+async function requireAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization
+    const token =
+      req.cookies?.token ||
+      (authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null)
+
+    if (!token) {
+      return res.status(401).json({ error: 'Authentication required. Please sign in.' })
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET)
+    const { rows } = await query('SELECT id, name, email, created_at FROM users WHERE id = $1', [decoded.id])
+
+    if (!rows || rows.length === 0) {
+      return res.status(401).json({ error: 'User session expired or user no longer exists.' })
+    }
+
+    req.user = rows[0]
+    next()
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired session. Please sign in again.' })
+  }
+}
+
+// ── Auth Routes ───────────────────────────────────────────────────
+
+// Register
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body
+
+    if (!name || name.trim().length < 2) {
+      return res.status(400).json({ error: 'Name must be at least 2 characters long.' })
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!email || !emailRegex.test(email.trim())) {
+      return res.status(400).json({ error: 'Please provide a valid email address.' })
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long.' })
+    }
+
+    const normalizedEmail = email.trim().toLowerCase()
+
+    // Check if email already registered
+    const existing = await query('SELECT id FROM users WHERE email = $1', [normalizedEmail])
+    if (existing.rows && existing.rows.length > 0) {
+      return res.status(409).json({ error: 'An account with this email address already exists.' })
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10)
+
+    // Insert user
+    const insertRes = await query(
+      'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, created_at',
+      [name.trim(), normalizedEmail, passwordHash]
+    )
+    const user = insertRes.rows[0]
+
+    // Create token
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '14d' })
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 14 * 24 * 60 * 60 * 1000,
+    })
+
+    res.status(201).json({
+      message: 'Account created successfully',
+      token,
+      user: { id: user.id, name: user.name, email: user.email },
+    })
+  } catch (err) {
+    console.error('[Register Error]', err)
+    res.status(500).json({ error: 'Failed to create account: ' + err.message })
+  }
+})
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' })
+    }
+
+    const normalizedEmail = email.trim().toLowerCase()
+    const { rows } = await query('SELECT * FROM users WHERE email = $1', [normalizedEmail])
+
+    if (!rows || rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password.' })
+    }
+
+    const user = rows[0]
+    const valid = await bcrypt.compare(password, user.password_hash)
+
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid email or password.' })
+    }
+
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '14d' })
+
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 14 * 24 * 60 * 60 * 1000,
+    })
+
+    res.json({
+      message: 'Signed in successfully',
+      token,
+      user: { id: user.id, name: user.name, email: user.email },
+    })
+  } catch (err) {
+    console.error('[Login Error]', err)
+    res.status(500).json({ error: 'Authentication failed: ' + err.message })
+  }
+})
+
+// Current user session check
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json({ user: req.user })
+})
+
+// Logout
+app.post('/api/auth/logout', (_req, res) => {
+  res.clearCookie('token')
+  res.json({ message: 'Signed out successfully.' })
+})
+
+// Update profile / password
+app.put('/api/auth/profile', requireAuth, async (req, res) => {
+  try {
+    const { name, currentPassword, newPassword } = req.body
+    const userId = req.user.id
+
+    if (name && name.trim().length >= 2) {
+      await query('UPDATE users SET name = $1 WHERE id = $2', [name.trim(), userId])
+    }
+
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required to set a new password.' })
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters long.' })
+      }
+
+      const { rows } = await query('SELECT password_hash FROM users WHERE id = $1', [userId])
+      const match = await bcrypt.compare(currentPassword, rows[0].password_hash)
+      if (!match) {
+        return res.status(401).json({ error: 'Current password incorrect.' })
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 10)
+      await query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, userId])
+    }
+
+    const updated = await query('SELECT id, name, email FROM users WHERE id = $1', [userId])
+    res.json({ message: 'Profile updated', user: updated.rows[0] })
+  } catch (err) {
+    res.status(500).json({ error: 'Profile update failed: ' + err.message })
+  }
+})
+
+// ── User Trips CRUD (User Isolated) ──────────────────────────────
+app.get('/api/trips', requireAuth, async (req, res) => {
+  try {
+    const result = await query(
+      'SELECT id, title, location, start_date, end_date, note, mood, created_at FROM trips WHERE user_id = $1 ORDER BY start_date DESC',
+      [req.user.id]
+    )
+    res.json(result.rows)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/trips', requireAuth, async (req, res) => {
+  const { title, location, start_date, end_date, note = '', mood = 'sunny' } = req.body
+  if (!title || !location || !start_date || !end_date) {
+    return res.status(400).json({ error: 'Title, location, and dates are required.' })
+  }
+  try {
+    const result = await query(
+      'INSERT INTO trips (user_id, title, location, start_date, end_date, note, mood) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id, title, location, start_date, end_date, note, mood, created_at',
+      [req.user.id, title.trim(), location.trim(), start_date, end_date, note.trim(), mood]
+    )
+    res.status(201).json(result.rows[0])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/trips/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await query('DELETE FROM trips WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id])
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Trip not found or unauthorized.' })
+    }
+    res.json({ deleted: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── User Wishlists CRUD (User Isolated) ───────────────────────────
+app.get('/api/wishlists', requireAuth, async (req, res) => {
+  try {
+    const result = await query(
+      'SELECT id, title, location, season, vibe, created_at FROM wishlists WHERE user_id = $1 ORDER BY id DESC',
+      [req.user.id]
+    )
+    res.json(result.rows)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.post('/api/wishlists', requireAuth, async (req, res) => {
+  const { title, location, season = 'Anytime', vibe = 'Curated' } = req.body
+  if (!title || !location) {
+    return res.status(400).json({ error: 'Title and location are required.' })
+  }
+  try {
+    const result = await query(
+      'INSERT INTO wishlists (user_id, title, location, season, vibe) VALUES ($1,$2,$3,$4,$5) RETURNING id, title, location, season, vibe, created_at',
+      [req.user.id, title.trim(), location.trim(), season.trim(), vibe.trim()]
+    )
+    res.status(201).json(result.rows[0])
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.delete('/api/wishlists/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await query('DELETE FROM wishlists WHERE id = $1 AND user_id = $2', [req.params.id, req.user.id])
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Wishlist item not found or unauthorized.' })
+    }
+    res.json({ deleted: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
 
 // ── AI Route Planner ──────────────────────────────────────────────
 app.post('/api/ai/route', async (req, res) => {
@@ -60,7 +314,7 @@ app.post('/api/ai/route', async (req, res) => {
 
   const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(stops[0])}&destination=${encodeURIComponent(stops.at(-1))}&waypoints=${encodeURIComponent(stops.slice(1, -1).join('|'))}`
 
-  if (!process.env.GOOGLE_MAPS_API_KEY)
+  if (!process.env.GOOGLE_MAPS_API_KEY) {
     return res.json({
       mode: 'demo',
       stops,
@@ -69,6 +323,7 @@ app.post('/api/ai/route', async (req, res) => {
       mapsUrl,
       message: 'Add GOOGLE_MAPS_API_KEY for live routing.',
     })
+  }
 
   try {
     const routeRes = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
@@ -101,86 +356,29 @@ app.post('/api/ai/route', async (req, res) => {
   }
 })
 
-// ── Trips CRUD ────────────────────────────────────────────────────
-app.get('/api/trips', async (_req, res) => {
-  if (!pool) return res.json([])
-  try {
-    const result = await pool.query(
-      'SELECT id, title, location, start_date, end_date, note, mood FROM trips ORDER BY start_date DESC'
-    )
-    res.json(result.rows)
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-app.post('/api/trips', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: 'Set DATABASE_URL to enable trip storage.' })
-  const { title, location, start_date, end_date, note = '', mood = 'sunny' } = req.body
-  if (!title || !location || !start_date || !end_date)
-    return res.status(400).json({ error: 'Title, location, and dates are required.' })
-  try {
-    const result = await pool.query(
-      'INSERT INTO trips (title, location, start_date, end_date, note, mood) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [title, location, start_date, end_date, note, mood]
-    )
-    res.status(201).json(result.rows[0])
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-app.delete('/api/trips/:id', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: 'Set DATABASE_URL to enable trip storage.' })
-  try {
-    await pool.query('DELETE FROM trips WHERE id = $1', [req.params.id])
-    res.json({ deleted: true })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
-})
-
-// ── Health & Status ──────────────────────────────────────────────
+// ── Health & Diagnostics ──────────────────────────────────────────
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() })
 })
 
 app.get('/api/status', async (_req, res) => {
-  if (!pool) return res.json({ connected: false, mode: 'demo' })
-  try {
-    const result = await pool.query('SELECT version(), now() AS checked_at')
-    res.json({ connected: true, version: result.rows[0].version, checkedAt: result.rows[0].checked_at })
-  } catch (err) {
-    res.status(503).json({ connected: false, error: err.message })
-  }
+  const dbInfo = getDbInfo()
+  res.json({
+    connected: true,
+    db: dbInfo,
+    serverTime: new Date().toISOString(),
+  })
 })
 
-// ── Raw query (dev only) ─────────────────────────────────────────
-app.post('/api/query', async (req, res) => {
-  if (!pool) return res.status(503).json({ error: 'Set DATABASE_URL to enable live queries.' })
-  try {
-    const result = await pool.query(req.body.sql)
-    res.json({ rows: result.rows, rowCount: result.rowCount })
-  } catch (err) {
-    res.status(400).json({ error: err.message })
-  }
-})
-
-// ── Serve static frontend ────────────────────────────────────────
+// ── Serve Static Frontend ─────────────────────────────────────────
 app.use(express.static(path.join(root, 'dist')))
 app.use((_req, res) => res.sendFile(path.join(root, 'dist', 'index.html')))
 
-// ── Auto-create schema ───────────────────────────────────────────
-const schemaSql = `CREATE TABLE IF NOT EXISTS trips (
-  id SERIAL PRIMARY KEY,
-  title TEXT NOT NULL,
-  location TEXT NOT NULL,
-  start_date DATE NOT NULL,
-  end_date DATE NOT NULL,
-  note TEXT DEFAULT '',
-  mood TEXT DEFAULT 'sunny',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-)`
-if (pool) pool.query(schemaSql).catch((err) => console.error(`Schema init failed: ${err.message}`))
-
-app.listen(port, () => console.log(`TripTrail server running at http://localhost:${port}`))
+// ── Initialize Schema & Start ─────────────────────────────────────
+initSchema()
+  .then(() => {
+    app.listen(port, () => console.log(`[TripTrail] Server running at http://localhost:${port}`))
+  })
+  .catch((err) => {
+    console.error('[TripTrail] Failed to start database schema:', err)
+  })
