@@ -12,7 +12,9 @@ export default function AuthPage({ onAuthSuccess }: Props) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
@@ -32,9 +34,15 @@ export default function AuthPage({ onAuthSuccess }: Props) {
       return
     }
 
-    if (isRegister && name.trim().length < 2) {
-      setError('Please enter your full name (at least 2 characters).')
-      return
+    if (isRegister) {
+      if (name.trim().length < 2) {
+        setError('Please enter your full name (at least 2 characters).')
+        return
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match. Please verify and re-enter your password.')
+        return
+      }
     }
 
     setLoading(true)
@@ -138,7 +146,7 @@ export default function AuthPage({ onAuthSuccess }: Props) {
                 setIsRegister(false)
                 setError('')
               }}
-              className={`py-2 rounded-xl transition-all ${
+              className={`py-2 rounded-xl transition-all cursor-pointer ${
                 !isRegister ? 'bg-white text-[#2B231D] shadow-xs font-semibold' : 'text-[#8A7968] hover:text-[#2B231D]'
               }`}
             >
@@ -150,7 +158,7 @@ export default function AuthPage({ onAuthSuccess }: Props) {
                 setIsRegister(true)
                 setError('')
               }}
-              className={`py-2 rounded-xl transition-all ${
+              className={`py-2 rounded-xl transition-all cursor-pointer ${
                 isRegister ? 'bg-white text-[#2B231D] shadow-xs font-semibold' : 'text-[#8A7968] hover:text-[#2B231D]'
               }`}
             >
@@ -232,12 +240,40 @@ export default function AuthPage({ onAuthSuccess }: Props) {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-2.5 text-[#A89682] hover:text-[#5C4D3C] p-0.5"
+                  className="absolute right-3 top-2.5 text-[#A89682] hover:text-[#5C4D3C] p-0.5 cursor-pointer"
+                  aria-label="Toggle password visibility"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
+
+            {isRegister && (
+              <div>
+                <label className="block text-xs font-medium text-[#5C4D3C] mb-1">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-[#A89682] absolute left-3.5 top-3" />
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#DDD2C4] bg-[#FAF8F5] text-xs text-[#2B231D] placeholder:text-[#B8A896] outline-none focus:border-[#E8654A] focus:bg-white focus:ring-2 focus:ring-[#E8654A]/10 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-2.5 text-[#A89682] hover:text-[#5C4D3C] p-0.5 cursor-pointer"
+                    aria-label="Toggle confirm password visibility"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"

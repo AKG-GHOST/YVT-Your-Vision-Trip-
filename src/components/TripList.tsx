@@ -83,17 +83,17 @@ export default function TripList({ trips, onSelectTrip, onCaptureTrip, searchQue
           <div className="w-12 h-12 mx-auto rounded-full bg-[#FAF8F5] border border-[#EDE5DB] flex items-center justify-center text-[#E8654A] mb-3 shadow-2xs">
             <Compass className="w-6 h-6" />
           </div>
-          <h3 className="text-base font-serif font-bold text-[#2B231D]">Your Travel Journal is Empty</h3>
+          <h3 className="text-base font-serif font-bold text-[#2B231D]">Your journey starts here.</h3>
           <p className="text-xs text-[#8A7968] mt-1.5 max-w-sm mx-auto leading-relaxed">
-            Every memorable voyage begins with a single moment. Capture your first journey, add notes, and save memories securely to your account.
+            You haven't recorded any journeys yet. Start creating your first travel memory and keep your routes private.
           </p>
           {onCaptureTrip && (
             <button
               onClick={onCaptureTrip}
-              className="mt-5 inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#2B231D] text-white text-xs font-semibold hover:bg-black transition-all shadow-sm active:scale-95"
+              className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E8654A] hover:bg-[#D75438] text-white text-xs font-semibold transition-all shadow-md shadow-[#E8654A]/25 active:scale-95 cursor-pointer"
             >
-              <Plus className="w-4 h-4 text-[#E8654A]" />
-              <span>Capture Your First Trip</span>
+              <Plus className="w-4 h-4 text-white" />
+              <span>Create Your First Journey</span>
             </button>
           )}
         </div>
