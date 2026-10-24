@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EFE5DA" />
+      <stop offset="100%" stop-color="#D5C2B0" />
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="48" fill="url(#bgGrad)" />
+  <!-- Minimalist compass needle / star -->
+  <circle cx="96" cy="96" r="64" fill="#FAF8F5" stroke="#CBB8A7" stroke-width="2" />
+  <path d="M96 46 L108 90 L146 96 L108 102 L96 146 L84 102 L46 96 L84 90 Z" fill="#E8654A" />
+  <circle cx="96" cy="96" r="6" fill="#2B231D" />
+</svg>

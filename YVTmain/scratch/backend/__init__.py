@@ -1,1 +1,0 @@
-"""TripTrail NATPAC Backend Package"""

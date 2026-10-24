@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      - PORT=8787
+      - DATABASE_URL=postgresql://triptrail:triptrail_secret@db:5432/triptrail
+      - DATABASE_SSL=false
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: triptrail
+      POSTGRES_PASSWORD: triptrail_secret
+      POSTGRES_DB: triptrail
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U triptrail -d triptrail"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
