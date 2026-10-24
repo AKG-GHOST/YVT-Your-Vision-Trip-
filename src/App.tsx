@@ -46,10 +46,6 @@ export default function App() {
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
-  const [dbStatus, setDbStatus] = useState<{ connected: boolean; checked: boolean; type?: string; file?: string }>({
-    connected: false,
-    checked: false,
-  })
 
   // Helper for authenticated fetch
   const authFetch = useCallback(
@@ -105,26 +101,10 @@ export default function App() {
     }
   }, [authFetch, token])
 
-  // Check initial authentication state & DB status
+  // Check initial authentication state
   useEffect(() => {
     async function checkAuthAndDb() {
       setAuthLoading(true)
-
-      // Check DB Status
-      try {
-        const statusRes = await fetch('/api/status')
-        const statusParsed = await safeJson<any>(statusRes)
-        if (statusParsed.ok && statusParsed.data) {
-          setDbStatus({
-            connected: Boolean(statusParsed.data.connected),
-            checked: true,
-            type: statusParsed.data.db?.type,
-            file: statusParsed.data.db?.file,
-          })
-        }
-      } catch {
-        setDbStatus({ connected: false, checked: true })
-      }
 
       // Check saved guest mode
       const savedToken = localStorage.getItem('triptrail_token')
@@ -330,24 +310,6 @@ export default function App() {
     setUser(parsed.data.user)
   }
 
-  // Check DB ping
-  async function handleCheckDb() {
-    try {
-      const res = await fetch('/api/status')
-      const parsed = await safeJson<any>(res)
-      if (parsed.ok && parsed.data) {
-        setDbStatus({
-          connected: Boolean(parsed.data.connected),
-          checked: true,
-          type: parsed.data.db?.type,
-          file: parsed.data.db?.file,
-        })
-      }
-    } catch {
-      setDbStatus({ connected: false, checked: true })
-    }
-  }
-
   function scrollToRoutePlanner() {
     setActiveTab('home')
     setTimeout(() => {
@@ -376,7 +338,6 @@ export default function App() {
       {/* Top Header */}
       <Header
         user={user}
-        dbStatus={dbStatus}
         showSearch={showSearch}
         onOpenSearch={() => setShowSearch(!showSearch)}
         onLogout={handleLogout}
@@ -447,8 +408,6 @@ export default function App() {
         {activeTab === 'profile' && (
           <ProfileView
             user={user}
-            dbStatus={dbStatus}
-            onCheckDb={handleCheckDb}
             trips={trips}
             wishlist={wishlist}
             onLogout={handleLogout}

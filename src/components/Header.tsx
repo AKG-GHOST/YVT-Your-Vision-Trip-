@@ -4,7 +4,6 @@ import type { User } from '../types'
 
 type Props = {
   user: User | null
-  dbStatus: { connected: boolean; checked: boolean; type?: string }
   onOpenSearch: () => void
   showSearch: boolean
   onLogout: () => void
@@ -13,7 +12,6 @@ type Props = {
 
 export default function Header({
   user,
-  dbStatus,
   onOpenSearch,
   showSearch,
   onLogout,
@@ -37,15 +35,6 @@ export default function Header({
 
       {/* Right User Controls */}
       <div className="flex items-center gap-2 sm:gap-3">
-        {/* DB Status Badge */}
-        <div
-          title={dbStatus.type === 'postgres' ? 'Connected to PostgreSQL Cloud' : 'Connected to Persistent Local SQLite'}
-          className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EDE5DB]/60 text-[10px] font-mono text-[#6B5D4F]"
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          <span>{dbStatus.type === 'postgres' ? 'POSTGRES' : 'SQLITE DB'}</span>
-        </div>
-
         {/* Search button */}
         <button
           onClick={onOpenSearch}

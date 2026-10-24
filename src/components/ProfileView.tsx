@@ -1,12 +1,10 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Database, Download, RefreshCw, Smartphone, Check, LogOut, Loader2, ShieldCheck } from 'lucide-react'
+import { Download, Smartphone, Check, LogOut, Loader2, ShieldCheck } from 'lucide-react'
 import type { User as UserType, Trip, WishlistItem } from '../types'
 
 type Props = {
   user: UserType | null
-  dbStatus: { connected: boolean; checked: boolean; type?: string; file?: string }
-  onCheckDb: () => void
   trips: Trip[]
   wishlist: WishlistItem[]
   onLogout: () => void
@@ -15,15 +13,12 @@ type Props = {
 
 export default function ProfileView({
   user,
-  dbStatus,
-  onCheckDb,
   trips,
   wishlist,
   onLogout,
   onUpdateProfile,
 }: Props) {
   const [downloaded, setDownloaded] = useState(false)
-  const [checking, setChecking] = useState(false)
   
   // Profile update state
   const [name, setName] = useState(user?.name || '')
@@ -31,12 +26,6 @@ export default function ProfileView({
   const [newPassword, setNewPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  async function handleCheck() {
-    setChecking(true)
-    await onCheckDb()
-    setChecking(false)
-  }
 
   function exportTripsJSON() {
     const backupData = {
@@ -205,50 +194,11 @@ export default function ProfileView({
         </button>
       </motion.form>
 
-      {/* Database State Card */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
-        className="p-5 rounded-3xl bg-white border border-[#EDE5DB] shadow-xs space-y-4"
-      >
-        <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-[#2B231D]">
-                {dbStatus.type === 'postgres' ? 'PostgreSQL Relational Storage' : 'SQLite Relational Storage'}
-              </h3>
-              <p className="text-xs text-[#8A7968]">
-                {dbStatus.type === 'postgres'
-                  ? 'All user accounts and records sync to PostgreSQL cloud.'
-                  : `Persistent storage saved in ${dbStatus.file || 'data/triptrail.db'}`}
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={handleCheck}
-            disabled={checking}
-            className="p-2 rounded-xl bg-[#FAF8F5] hover:bg-[#F5F0EA] border border-[#EDE5DB] text-[#5C4D3C] text-xs font-medium transition-colors flex items-center gap-1.5"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${checking ? 'animate-spin' : ''}`} />
-            <span>Test Ping</span>
-          </button>
-        </div>
-
-        <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#EDE5DB] text-xs text-[#6B5D4F] leading-relaxed">
-          <span className="font-semibold text-[#2B231D]">Cloud Deployment Ready:</span> When deploying on Render/Railway, define <code className="px-1.5 py-0.5 rounded bg-white text-[11px] font-mono">DATABASE_URL=postgresql://...</code> to automatically switch to hosted PostgreSQL.
-        </div>
-      </motion.div>
-
       {/* Data Export Card */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
+        transition={{ delay: 0.15 }}
         className="p-5 rounded-3xl bg-white border border-[#EDE5DB] shadow-xs flex items-center justify-between gap-4"
       >
         <div>
@@ -278,7 +228,7 @@ export default function ProfileView({
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25 }}
+        transition={{ delay: 0.2 }}
         className="p-5 rounded-3xl bg-gradient-to-br from-[#EFE5DA] to-[#FAF8F5] border border-[#DDD2C4] shadow-xs flex items-start gap-4"
       >
         <div className="w-10 h-10 rounded-2xl bg-[#E8654A] text-white flex items-center justify-center flex-shrink-0 shadow-sm">
