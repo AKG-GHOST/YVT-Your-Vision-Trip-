@@ -4,40 +4,56 @@ import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 import Database from 'better-sqlite3'
 
-const { Pool } = pg
+const { Pool, types } = pg
 const root = path.dirname(fileURLToPath(import.meta.url))
+
+// Ensure PostgreSQL DATE (type 1082) is returned as 'YYYY-MM-DD' string to match SQLite format
+types.setTypeParser(1082, (val) => val)
 
 let pool = null
 let sqliteDb = null
 let dbType = 'sqlite'
 let dbFilePath = ''
+let poolInitError = null
 
-const databaseUrl = process.env.DATABASE_URL?.trim()
+let rawDatabaseUrl = (process.env.DATABASE_URL || '').trim()
 
-if (databaseUrl) {
+// Normalize postgres:// to postgresql:// if needed
+if (rawDatabaseUrl.startsWith('postgres://')) {
+  rawDatabaseUrl = rawDatabaseUrl.replace('postgres://', 'postgresql://')
+}
+
+if (rawDatabaseUrl) {
   try {
-    // Automatically detect SSL requirement for Cloud Postgres (Neon, Supabase, Render, AWS, sslmode=require)
-    const isCloud = /neon\.tech|supabase\.co|render\.com|aws|pooler/i.test(databaseUrl)
-    const forceSsl =
+    const isLocalhost = rawDatabaseUrl.includes('localhost') || rawDatabaseUrl.includes('127.0.0.1')
+    // Automatically enable SSL for all remote/cloud PostgreSQL hosts (Neon, Supabase, Render, AWS, Railway)
+    const useSsl =
       process.env.DATABASE_SSL === 'true' ||
-      isCloud ||
-      databaseUrl.includes('sslmode=require')
+      (!isLocalhost && process.env.DATABASE_SSL !== 'false')
 
     pool = new Pool({
-      connectionString: databaseUrl,
-      ssl: forceSsl ? { rejectUnauthorized: false } : undefined,
-      max: 10,
-      connectionTimeoutMillis: 5000,
+      connectionString: rawDatabaseUrl,
+      ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+      max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 10,
+      idleTimeoutMillis: 20000,
+      connectionTimeoutMillis: 10000,
     })
+
+    pool.on('error', (err) => {
+      console.error('[TripTrail DB Pool Error]', err.message)
+    })
+
     dbType = 'postgres'
-    console.log(`[TripTrail DB] Configured for PostgreSQL (Cloud SSL: ${forceSsl})`)
+    console.log(`[TripTrail DB] Configured for PostgreSQL (SSL: ${useSsl})`)
   } catch (err) {
-    console.error('[TripTrail DB] Failed to initialize PostgreSQL pool, falling back to SQLite:', err.message)
+    console.error('[TripTrail DB] Failed to create PostgreSQL pool:', err.message)
     pool = null
+    poolInitError = err.message
     dbType = 'sqlite'
   }
 }
 
+// Fallback to SQLite (local file or serverless /tmp)
 if (!pool) {
   const isVercel = Boolean(process.env.VERCEL)
   const dbDir = isVercel ? '/tmp' : path.join(root, 'data')
@@ -49,7 +65,7 @@ if (!pool) {
   sqliteDb.pragma('journal_mode = WAL')
   sqliteDb.pragma('foreign_keys = ON')
   dbType = 'sqlite'
-  console.log(`[TripTrail DB] Using persistent SQLite database at: ${dbFilePath}`)
+  console.log(`[TripTrail DB] Using SQLite database at: ${dbFilePath} (Persistent: ${!isVercel})`)
 }
 
 /**
@@ -57,9 +73,13 @@ if (!pool) {
  */
 export async function query(sql, params = []) {
   if (pool) {
-    // PostgreSQL
-    const res = await pool.query(sql, params)
-    return { rows: res.rows, rowCount: res.rowCount }
+    try {
+      const res = await pool.query(sql, params)
+      return { rows: res.rows, rowCount: res.rowCount }
+    } catch (err) {
+      console.error('[PostgreSQL Query Error]', err.message)
+      throw err
+    }
   }
 
   // SQLite: convert $1, $2... to ?
@@ -78,6 +98,73 @@ export async function query(sql, params = []) {
 
   const info = sqliteDb.prepare(sqliteSql).run(...params)
   return { rows: [], rowCount: info.changes }
+}
+
+/**
+ * Health check with live query execution and persistence verification
+ */
+export async function getDbHealth() {
+  const isVercel = Boolean(process.env.VERCEL)
+  const hasDbUrl = Boolean(rawDatabaseUrl)
+  const startTime = Date.now()
+
+  if (pool) {
+    try {
+      const pingRes = await pool.query('SELECT NOW() as now')
+      const userRes = await pool.query('SELECT COUNT(*)::int as count FROM users')
+      const tripRes = await pool.query('SELECT COUNT(*)::int as count FROM trips')
+      const latencyMs = Date.now() - startTime
+
+      return {
+        status: 'healthy',
+        database: 'PostgreSQL',
+        persistent: true,
+        latencyMs,
+        userCount: userRes.rows[0]?.count || 0,
+        tripCount: tripRes.rows[0]?.count || 0,
+        serverTime: pingRes.rows[0]?.now,
+        isVercel,
+      }
+    } catch (err) {
+      return {
+        status: 'unreachable',
+        database: 'PostgreSQL',
+        persistent: true,
+        error: err.message,
+        message: 'PostgreSQL connection failed. Verify DATABASE_URL credentials and SSL in Vercel.',
+        isVercel,
+      }
+    }
+  }
+
+  // SQLite mode
+  try {
+    const userRow = sqliteDb ? sqliteDb.prepare('SELECT COUNT(*) as count FROM users').get() : { count: 0 }
+    const tripRow = sqliteDb ? sqliteDb.prepare('SELECT COUNT(*) as count FROM trips').get() : { count: 0 }
+    const latencyMs = Date.now() - startTime
+
+    return {
+      status: isVercel ? 'warning_ephemeral' : 'healthy_local',
+      database: 'SQLite',
+      persistent: !isVercel,
+      latencyMs,
+      userCount: userRow?.count || 0,
+      tripCount: tripRow?.count || 0,
+      hasDatabaseUrlEnv: hasDbUrl,
+      poolInitError: poolInitError || undefined,
+      isVercel,
+      warning: isVercel
+        ? 'Running on ephemeral /tmp SQLite inside Vercel Serverless Function. Data will reset on cold starts. Add DATABASE_URL in Vercel project settings to persist permanently.'
+        : undefined,
+    }
+  } catch (err) {
+    return {
+      status: 'error',
+      database: 'SQLite',
+      error: err.message,
+      isVercel,
+    }
+  }
 }
 
 export function getDbInfo() {

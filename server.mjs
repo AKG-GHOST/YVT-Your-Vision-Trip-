@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import { query, initSchema, getDbInfo } from './db.mjs'
+import { query, initSchema, getDbInfo, getDbHealth } from './db.mjs'
 
 const app = express()
 const port = process.env.PORT || 8787
@@ -347,7 +347,7 @@ app.post('/api/wishlists', requireAuth, async (req, res) => {
   }
   try {
     const result = await query(
-      'INSERT INTO wishlists (user_id, user_email, title, location, season, vibe) VALUES ($1,$2,$3,$4,$5) RETURNING id, title, location, season, vibe, created_at',
+      'INSERT INTO wishlists (user_id, user_email, title, location, season, vibe) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, title, location, season, vibe, created_at',
       [req.user.id, req.user.email.toLowerCase(), title.trim(), location.trim(), season.trim(), vibe.trim()]
     )
     res.status(201).json(result.rows[0])
@@ -462,11 +462,31 @@ app.get('/api/health', (_req, res) => {
 })
 
 app.get('/api/status', async (_req, res) => {
-  const dbInfo = getDbInfo()
+  const dbHealth = await getDbHealth()
   res.json({
-    connected: true,
-    db: dbInfo,
+    connected: dbHealth.status === 'healthy' || dbHealth.status === 'healthy_local' || dbHealth.status === 'warning_ephemeral',
+    db: dbHealth,
     serverTime: new Date().toISOString(),
+  })
+})
+
+app.get('/api/db/diagnostics', async (_req, res) => {
+  const dbHealth = await getDbHealth()
+  res.json({
+    timestamp: new Date().toISOString(),
+    diagnostics: dbHealth,
+    instructions: dbHealth.persistent
+      ? 'Database is configured for persistent cloud storage.'
+      : 'ACTION REQUIRED FOR PRODUCTION PERSISTENCE: In Vercel Project Settings -> Environment Variables, add DATABASE_URL (e.g. from Neon.tech or Supabase.com).'
+  })
+})
+
+// Centralized API Error Handling Middleware
+app.use((err, req, res, _next) => {
+  console.error(`[Server Error] ${req.method} ${req.url}:`, err.message)
+  res.status(err.status || 500).json({
+    error: err.message || 'An unexpected database error occurred.',
+    path: req.url,
   })
 })
 

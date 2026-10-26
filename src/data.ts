@@ -1,10 +1,12 @@
 export function formatDate(date: string) {
   try {
-    return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(
-      new Date(`${date}T00:00:00`)
-    )
+    if (!date) return ''
+    const cleanDate = String(date).includes('T') ? String(date) : `${String(date).trim()}T00:00:00`
+    const parsed = new Date(cleanDate)
+    if (isNaN(parsed.getTime())) return String(date)
+    return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric' }).format(parsed)
   } catch {
-    return date
+    return String(date)
   }
 }
 
