@@ -106,7 +106,11 @@ export default function AuthPage({ onAuthSuccess }: Props) {
       {/* Top Brand Bar */}
       <header className="max-w-md mx-auto w-full pt-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-[#E8654A]" />
+          <motion.span
+            animate={{ scale: [1, 1.25, 1], opacity: [0.9, 1, 0.9] }}
+            transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+            className="w-2 h-2 rounded-full bg-[#E8654A]"
+          />
           <span className="text-xs font-semibold tracking-[0.35em] text-[#2B231D] uppercase">
             T I N K E R <span className="text-[#A89682] font-light">·</span> T R A I L
           </span>
@@ -121,6 +125,7 @@ export default function AuthPage({ onAuthSuccess }: Props) {
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="rounded-3xl border border-[#EDE5DB] bg-white p-6 sm:p-8 shadow-sm"
         >
           {/* Header */}
@@ -139,17 +144,24 @@ export default function AuthPage({ onAuthSuccess }: Props) {
           </div>
 
           {/* Mode Tabs */}
-          <div className="grid grid-cols-2 p-1 rounded-2xl bg-[#F5F0EA] mb-6 text-xs font-medium">
+          <div className="grid grid-cols-2 p-1 rounded-2xl bg-[#F5F0EA] mb-6 text-xs font-medium relative">
             <button
               type="button"
               onClick={() => {
                 setIsRegister(false)
                 setError('')
               }}
-              className={`py-2 rounded-xl transition-all cursor-pointer ${
-                !isRegister ? 'bg-white text-[#2B231D] shadow-xs font-semibold' : 'text-[#8A7968] hover:text-[#2B231D]'
+              className={`relative z-10 py-2 rounded-xl transition-colors cursor-pointer text-center ${
+                !isRegister ? 'text-[#2B231D] font-semibold' : 'text-[#8A7968] hover:text-[#2B231D]'
               }`}
             >
+              {!isRegister && (
+                <motion.span
+                  layoutId="authTabBackground"
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="absolute inset-0 bg-white rounded-xl shadow-xs -z-10"
+                />
+              )}
               Sign In
             </button>
             <button
@@ -158,10 +170,17 @@ export default function AuthPage({ onAuthSuccess }: Props) {
                 setIsRegister(true)
                 setError('')
               }}
-              className={`py-2 rounded-xl transition-all cursor-pointer ${
-                isRegister ? 'bg-white text-[#2B231D] shadow-xs font-semibold' : 'text-[#8A7968] hover:text-[#2B231D]'
+              className={`relative z-10 py-2 rounded-xl transition-colors cursor-pointer text-center ${
+                isRegister ? 'text-[#2B231D] font-semibold' : 'text-[#8A7968] hover:text-[#2B231D]'
               }`}
             >
+              {isRegister && (
+                <motion.span
+                  layoutId="authTabBackground"
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="absolute inset-0 bg-white rounded-xl shadow-xs -z-10"
+                />
+              )}
               Create Account
             </button>
           </div>
@@ -275,10 +294,13 @@ export default function AuthPage({ onAuthSuccess }: Props) {
               </div>
             )}
 
-            <button
+            <motion.button
+              whileHover={{ scale: 1.01, y: -0.5 }}
+              whileTap={{ scale: 0.98, y: 0 }}
+              transition={{ duration: 0.15 }}
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3 rounded-2xl bg-[#E8654A] hover:bg-[#D75438] active:scale-[0.99] text-white text-xs font-semibold shadow-md shadow-[#E8654A]/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+              className="w-full mt-2 py-3 rounded-2xl bg-[#E8654A] hover:bg-[#D75438] text-white text-xs font-semibold shadow-md shadow-[#E8654A]/25 flex items-center justify-center gap-2 transition-colors disabled:opacity-50 cursor-pointer"
             >
               {loading ? (
                 <>
@@ -291,7 +313,7 @@ export default function AuthPage({ onAuthSuccess }: Props) {
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}
-            </button>
+            </motion.button>
           </form>
 
           {/* Privacy Note */}

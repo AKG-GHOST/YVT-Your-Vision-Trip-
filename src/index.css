@@ -34,6 +34,42 @@
   
   --color-cream: #fdfcfa;
   --color-paper: #fffdf9;
+
+  --animate-float-slow: float-slow 7s ease-in-out infinite;
+  --animate-float-reverse: float-reverse 8s ease-in-out infinite;
+  --animate-light-sweep: light-sweep 14s ease-in-out infinite;
+  --animate-border-shimmer: border-shimmer 9s linear infinite;
+
+  @keyframes float-slow {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
+  }
+
+  @keyframes float-reverse {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(4px); }
+  }
+
+  @keyframes light-sweep {
+    0% { transform: translateX(-120%) rotate(15deg); }
+    50% { transform: translateX(120%) rotate(15deg); }
+    100% { transform: translateX(120%) rotate(15deg); }
+  }
+
+  @keyframes border-shimmer {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+}
+
+/* Reduced motion preference respect */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 html {

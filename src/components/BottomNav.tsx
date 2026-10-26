@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { Home, Compass, Bookmark, User, Plus } from 'lucide-react'
 import type { Tab } from '../types'
 
@@ -25,42 +26,75 @@ export default function BottomNav({ active, onTab, onCapture }: Props) {
         {leftTabs.map(({ id, icon: Icon, label }) => {
           const isActive = active === id
           return (
-            <button
+            <motion.button
               key={id}
+              whileTap={{ scale: 0.92 }}
               onClick={() => onTab(id)}
-              className={`flex flex-col items-center gap-1 py-1 px-3 transition-colors ${
+              className={`relative flex flex-col items-center gap-0.5 py-1 px-3 transition-colors cursor-pointer ${
                 isActive ? 'text-[#E8654A]' : 'text-[#8A7968] hover:text-[#5C4D3C]'
               }`}
             >
-              <Icon className="w-5 h-5" />
+              {isActive && (
+                <motion.span
+                  layoutId="activeTabPill"
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="absolute inset-0 rounded-xl bg-[#E8654A]/8 -z-10"
+                />
+              )}
+              <Icon className="w-5 h-5 transition-transform duration-200" />
               <span className="text-[10px] font-medium tracking-tight">{label}</span>
-            </button>
+              {isActive && (
+                <motion.span
+                  layoutId="activeTabDot"
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="w-1 h-1 rounded-full bg-[#E8654A]"
+                />
+              )}
+            </motion.button>
           )
         })}
 
         {/* Central Capture Button */}
-        <button
+        <motion.button
+          whileHover={{ scale: 1.06, y: -2 }}
+          whileTap={{ scale: 0.94, y: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
           onClick={onCapture}
-          className="relative -top-4 w-12 h-12 rounded-full bg-[#E8654A] hover:bg-[#D75438] active:scale-95 text-white flex items-center justify-center shadow-lg shadow-[#E8654A]/35 transition-all border-4 border-[#FAF8F5]"
+          className="group relative -top-4 w-12 h-12 rounded-full bg-[#E8654A] hover:bg-[#D75438] text-white flex items-center justify-center shadow-lg shadow-[#E8654A]/35 transition-shadow border-4 border-[#FAF8F5] cursor-pointer"
           aria-label="New Journal Entry"
         >
-          <Plus className="w-5 h-5 stroke-[2.5]" />
-        </button>
+          <Plus className="w-5 h-5 stroke-[2.5] group-hover:rotate-90 transition-transform duration-300" />
+        </motion.button>
 
         {/* Right Tabs */}
         {rightTabs.map(({ id, icon: Icon, label }) => {
           const isActive = active === id
           return (
-            <button
+            <motion.button
               key={id}
+              whileTap={{ scale: 0.92 }}
               onClick={() => onTab(id)}
-              className={`flex flex-col items-center gap-1 py-1 px-3 transition-colors ${
+              className={`relative flex flex-col items-center gap-0.5 py-1 px-3 transition-colors cursor-pointer ${
                 isActive ? 'text-[#E8654A]' : 'text-[#8A7968] hover:text-[#5C4D3C]'
               }`}
             >
-              <Icon className="w-5 h-5" />
+              {isActive && (
+                <motion.span
+                  layoutId="activeTabPill"
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="absolute inset-0 rounded-xl bg-[#E8654A]/8 -z-10"
+                />
+              )}
+              <Icon className="w-5 h-5 transition-transform duration-200" />
               <span className="text-[10px] font-medium tracking-tight">{label}</span>
-            </button>
+              {isActive && (
+                <motion.span
+                  layoutId="activeTabDot"
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="w-1 h-1 rounded-full bg-[#E8654A]"
+                />
+              )}
+            </motion.button>
           )
         })}
       </div>

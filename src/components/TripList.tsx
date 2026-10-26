@@ -59,10 +59,13 @@ export default function TripList({ trips, onSelectTrip, onCaptureTrip, searchQue
             {MOOD_FILTERS.map((filter) => {
               const isActive = activeMood === filter.id
               return (
-                <button
+                <motion.button
                   key={filter.id}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
                   onClick={() => setActiveMood(filter.id)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors cursor-pointer ${
                     isActive
                       ? 'bg-[#2B231D] text-white shadow-2xs'
                       : 'bg-[#EDE5DB]/70 text-[#6B5D4F] hover:bg-[#E2D7CB]'
@@ -70,7 +73,7 @@ export default function TripList({ trips, onSelectTrip, onCaptureTrip, searchQue
                 >
                   {filter.icon && <span className="mr-1">{filter.icon}</span>}
                   <span>{filter.label}</span>
-                </button>
+                </motion.button>
               )
             })}
           </div>
@@ -88,13 +91,16 @@ export default function TripList({ trips, onSelectTrip, onCaptureTrip, searchQue
             You haven't recorded any journeys yet. Start creating your first travel memory and keep your routes private.
           </p>
           {onCaptureTrip && (
-            <button
+            <motion.button
+              whileHover={{ scale: 1.02, y: -1 }}
+              whileTap={{ scale: 0.97 }}
+              transition={{ duration: 0.18 }}
               onClick={onCaptureTrip}
-              className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E8654A] hover:bg-[#D75438] text-white text-xs font-semibold transition-all shadow-md shadow-[#E8654A]/25 active:scale-95 cursor-pointer"
+              className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#E8654A] hover:bg-[#D75438] text-white text-xs font-semibold transition-all shadow-md shadow-[#E8654A]/25 cursor-pointer"
             >
               <Plus className="w-4 h-4 text-white" />
               <span>Create Your First Journey</span>
-            </button>
+            </motion.button>
           )}
         </div>
       ) : filteredTrips.length === 0 ? (
@@ -109,18 +115,20 @@ export default function TripList({ trips, onSelectTrip, onCaptureTrip, searchQue
             return (
               <motion.article
                 key={trip.id || index}
-                initial={{ opacity: 0, y: 15 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
+                initial={{ opacity: 0, y: 16 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-20px' }}
+                transition={{ duration: 0.45, delay: Math.min(index * 0.05, 0.3), ease: [0.22, 1, 0.36, 1] }}
+                whileHover={{ y: -3 }}
                 onClick={() => onSelectTrip(trip)}
-                className="group relative flex min-h-[148px] rounded-2xl border border-[#EDE5DB] bg-white overflow-hidden hover:shadow-md hover:border-[#D8C7B5] transition-all cursor-pointer"
+                className="group relative flex min-h-[148px] rounded-2xl border border-[#EDE5DB] bg-white overflow-hidden hover:shadow-md hover:border-[#D8C7B5] transition-shadow duration-200 cursor-pointer"
               >
                 {/* Art Thumbnail Panel */}
                 <div
                   className={`relative w-[110px] flex-shrink-0 flex flex-col justify-between p-3.5 ${mood.artBg} overflow-hidden select-none`}
                 >
-                  <div className={`absolute w-[115px] h-[115px] -right-10 -bottom-12 rounded-full ${mood.artCircle}`} />
-                  <span className="relative z-10 text-3xl leading-none drop-shadow-2xs">{mood.icon}</span>
+                  <div className={`absolute w-[115px] h-[115px] -right-10 -bottom-12 rounded-full ${mood.artCircle} group-hover:scale-110 transition-transform duration-500 ease-out`} />
+                  <span className="relative z-10 text-3xl leading-none drop-shadow-2xs group-hover:scale-105 group-hover:rotate-3 transition-transform duration-300 ease-out">{mood.icon}</span>
                   <span className="relative z-10 text-[10px] font-mono text-white font-semibold">
                     № {String(index + 1).padStart(2, '0')}
                   </span>

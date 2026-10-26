@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { X, ArrowRight, MapPin } from 'lucide-react'
 import type { Trip } from '../types'
 
@@ -24,8 +24,6 @@ export default function TripDialog({ open, onClose, onSave }: Props) {
   const [note, setNote] = useState('')
   const [mood, setMood] = useState<Trip['mood']>('sunny')
   const [error, setError] = useState('')
-
-  if (!open) return null
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -52,14 +50,27 @@ export default function TripDialog({ open, onClose, onSave }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="relative w-full max-w-lg bg-[#FAF8F5] rounded-3xl overflow-hidden shadow-2xl border border-[#EDE5DB] my-8"
-      >
-        {/* Modal Top Header */}
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          {/* Backdrop with smooth fade */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.22 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm"
+          />
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="relative w-full max-w-lg bg-[#FAF8F5] rounded-3xl overflow-hidden shadow-2xl border border-[#EDE5DB] my-8 z-10"
+          >
+            {/* Modal Top Header */}
         <div className="p-6 pb-4 border-b border-[#EDE5DB] flex items-center justify-between">
           <div>
             <span className="text-[10px] font-mono tracking-widest text-[#A89682] uppercase">
@@ -193,16 +204,21 @@ export default function TripDialog({ open, onClose, onSave }: Props) {
 
           {/* Submit button */}
           <div className="pt-2">
-            <button
+            <motion.button
+              whileHover={{ scale: 1.01, y: -1 }}
+              whileTap={{ scale: 0.98, y: 0 }}
+              transition={{ duration: 0.18 }}
               type="submit"
-              className="w-full py-3 rounded-2xl bg-[#E8654A] hover:bg-[#D75438] active:scale-98 text-white text-xs font-semibold shadow-md shadow-[#E8654A]/25 flex items-center justify-center gap-2 transition-all"
+              className="w-full py-3 rounded-2xl bg-[#E8654A] hover:bg-[#D75438] text-white text-xs font-semibold shadow-md shadow-[#E8654A]/25 flex items-center justify-center gap-2 transition-colors cursor-pointer"
             >
               <span>Save this journey</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            </motion.button>
           </div>
         </form>
       </motion.div>
     </div>
+      )}
+    </AnimatePresence>
   )
 }

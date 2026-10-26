@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import Header from './components/Header'
 import HeroBanner from './components/HeroBanner'
 import RoutePlannerCard from './components/RoutePlannerCard'
@@ -290,7 +291,10 @@ export default function App() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-[#FAF8F5] flex flex-col items-center justify-center text-[#2B231D]">
-        <div className="w-8 h-8 rounded-full border-2 border-[#E8654A] border-t-transparent animate-spin mb-3" />
+        <div className="relative flex items-center justify-center mb-4">
+          <div className="w-10 h-10 rounded-full border-2 border-[#E8654A]/25 border-t-[#E8654A] animate-spin" />
+          <div className="absolute w-2 h-2 rounded-full bg-[#E8654A]" />
+        </div>
         <p className="text-xs font-mono tracking-widest text-[#8A7968] uppercase">Loading TripTrail...</p>
       </div>
     )
@@ -314,75 +318,117 @@ export default function App() {
       />
 
       {/* Global Search Input Drawer */}
-      {showSearch && (
-        <div className="px-4 sm:px-6 py-3 bg-[#F5F0EA] border-b border-[#EDE5DB] max-w-2xl mx-auto">
-          <input
-            autoFocus
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search your journeys by city, title, or reflections..."
-            className="w-full px-4 py-2.5 rounded-xl border border-[#DDD2C4] bg-white text-xs outline-none focus:border-[#E8654A] shadow-2xs"
-          />
-        </div>
-      )}
-
-      {/* Main Tab Views */}
-      <main className="max-w-2xl mx-auto pb-24">
-        {activeTab === 'home' && (
-          <div className="py-4 space-y-2">
-            {/* Tinker-Inspired Hero Banner */}
-            <HeroBanner
-              user={user}
-              tripCount={trips.length}
-              onCapture={() => setDialogOpen(true)}
-              onPlanRoute={scrollToRoutePlanner}
-            />
-
-            {/* AI Route Planner Card */}
-            <RoutePlannerCard />
-
-            {/* Recent Trips / Journal Archive */}
-            <TripList
-              trips={trips}
-              onSelectTrip={(t) => setSelectedTrip(t)}
-              onCaptureTrip={() => setDialogOpen(true)}
-              searchQuery={searchQuery}
-            />
-
-            {/* Inspiration Band */}
-            <InspirationBand />
-          </div>
+      <AnimatePresence>
+        {showSearch && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden bg-[#F5F0EA] border-b border-[#EDE5DB]"
+          >
+            <div className="px-4 sm:px-6 py-3 max-w-2xl mx-auto">
+              <input
+                autoFocus
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search your journeys by city, title, or reflections..."
+                className="w-full px-4 py-2.5 rounded-xl border border-[#DDD2C4] bg-white text-xs outline-none focus:border-[#E8654A] shadow-2xs"
+              />
+            </div>
+          </motion.div>
         )}
+      </AnimatePresence>
 
-        {activeTab === 'journeys' && (
-          <div className="py-4">
-            <TripList
-              trips={trips}
-              onSelectTrip={(t) => setSelectedTrip(t)}
-              onCaptureTrip={() => setDialogOpen(true)}
-              searchQuery={searchQuery}
-            />
-          </div>
-        )}
+      {/* Main Tab Views with smooth tab transitions */}
+      <main className="max-w-2xl mx-auto pb-24 min-h-[calc(100vh-120px)]">
+        <AnimatePresence mode="wait">
+          {activeTab === 'home' && (
+            <motion.div
+              key="home"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="py-4 space-y-2"
+            >
+              {/* Tinker-Inspired Hero Banner */}
+              <HeroBanner
+                user={user}
+                tripCount={trips.length}
+                onCapture={() => setDialogOpen(true)}
+                onPlanRoute={scrollToRoutePlanner}
+              />
 
-        {activeTab === 'saved' && (
-          <WishlistView
-            items={wishlist}
-            onAdd={handleAddWishlist}
-            onRemove={handleRemoveWishlist}
-          />
-        )}
+              {/* AI Route Planner Card */}
+              <RoutePlannerCard />
 
-        {activeTab === 'profile' && (
-          <ProfileView
-            user={user}
-            trips={trips}
-            wishlist={wishlist}
-            onLogout={handleLogout}
-            onUpdateProfile={handleUpdateProfile}
-          />
-        )}
+              {/* Recent Trips / Journal Archive */}
+              <TripList
+                trips={trips}
+                onSelectTrip={(t) => setSelectedTrip(t)}
+                onCaptureTrip={() => setDialogOpen(true)}
+                searchQuery={searchQuery}
+              />
+
+              {/* Inspiration Band */}
+              <InspirationBand />
+            </motion.div>
+          )}
+
+          {activeTab === 'journeys' && (
+            <motion.div
+              key="journeys"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              className="py-4"
+            >
+              <TripList
+                trips={trips}
+                onSelectTrip={(t) => setSelectedTrip(t)}
+                onCaptureTrip={() => setDialogOpen(true)}
+                searchQuery={searchQuery}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'saved' && (
+            <motion.div
+              key="saved"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <WishlistView
+                items={wishlist}
+                onAdd={handleAddWishlist}
+                onRemove={handleRemoveWishlist}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'profile' && (
+            <motion.div
+              key="profile"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <ProfileView
+                user={user}
+                trips={trips}
+                wishlist={wishlist}
+                onLogout={handleLogout}
+                onUpdateProfile={handleUpdateProfile}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
 
       {/* Sticky Bottom Navigation */}

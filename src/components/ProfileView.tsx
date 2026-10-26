@@ -185,13 +185,16 @@ export default function ProfileView({
           </div>
         </div>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.01, y: -0.5 }}
+          whileTap={{ scale: 0.98, y: 0 }}
+          transition={{ duration: 0.15 }}
           type="submit"
           disabled={saving}
-          className="py-2.5 px-5 rounded-xl bg-[#2B231D] text-white text-xs font-semibold hover:bg-black transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          className="py-2.5 px-5 rounded-xl bg-[#2B231D] text-white text-xs font-semibold hover:bg-black transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer shadow-2xs"
         >
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Update Settings</span>}
-        </button>
+        </motion.button>
       </motion.form>
 
       {/* Data Export Card */}
@@ -206,9 +209,12 @@ export default function ProfileView({
           <p className="text-xs text-[#8A7968] mt-0.5">Download a JSON backup of your journeys and wishlist.</p>
         </div>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.97 }}
+          transition={{ duration: 0.15 }}
           onClick={exportTripsJSON}
-          className="py-2.5 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F5F0EA] border border-[#EDE5DB] text-xs font-semibold text-[#2B231D] flex items-center gap-2 transition-colors flex-shrink-0"
+          className="py-2.5 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F5F0EA] border border-[#EDE5DB] text-xs font-semibold text-[#2B231D] flex items-center gap-2 transition-colors flex-shrink-0 cursor-pointer shadow-2xs"
         >
           {downloaded ? (
             <>
@@ -221,7 +227,7 @@ export default function ProfileView({
               <span>Export JSON</span>
             </>
           )}
-        </button>
+        </motion.button>
       </motion.div>
 
       {/* Standalone Installation Card */}

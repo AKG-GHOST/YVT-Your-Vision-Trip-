@@ -52,22 +52,26 @@ export default function WishlistView({ items, onAdd, onRemove }: Props) {
           </h1>
         </div>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.02, y: -0.5 }}
+          whileTap={{ scale: 0.97, y: 0 }}
+          transition={{ duration: 0.15 }}
           onClick={() => setShowAdd(!showAdd)}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#2B231D] text-white text-xs font-medium hover:bg-black transition-colors"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-[#2B231D] text-white text-xs font-medium hover:bg-black transition-colors cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5 text-[#E8654A]" />
           <span>{showAdd ? 'Cancel' : 'Add Destination'}</span>
-        </button>
+        </motion.button>
       </div>
 
       {/* Add Form Accordion */}
       <AnimatePresence>
         {showAdd && (
           <motion.form
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.98 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
             onSubmit={handleSubmit}
             className="mb-6 p-5 rounded-3xl bg-white border border-[#DDD2C4] shadow-xs space-y-3"
           >
@@ -78,7 +82,7 @@ export default function WishlistView({ items, onAdd, onRemove }: Props) {
               placeholder="Dream experience (e.g. Northern Lights under glass igloo)"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-[#DDD2C4] outline-none focus:border-[#E8654A]"
+              className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-[#DDD2C4] outline-none focus:border-[#E8654A] shadow-2xs"
             />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input
@@ -87,23 +91,26 @@ export default function WishlistView({ items, onAdd, onRemove }: Props) {
                 placeholder="Location (e.g. Lapland, Finland)"
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-[#DDD2C4] outline-none focus:border-[#E8654A]"
+                className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-[#DDD2C4] outline-none focus:border-[#E8654A] shadow-2xs"
               />
               <input
                 type="text"
                 placeholder="Target Season (e.g. Winter / Dec)"
                 value={season}
                 onChange={(e) => setSeason(e.target.value)}
-                className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-[#DDD2C4] outline-none focus:border-[#E8654A]"
+                className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-[#DDD2C4] outline-none focus:border-[#E8654A] shadow-2xs"
               />
             </div>
-            <button
+            <motion.button
+              whileHover={{ scale: 1.01, y: -0.5 }}
+              whileTap={{ scale: 0.98, y: 0 }}
+              transition={{ duration: 0.15 }}
               type="submit"
               disabled={submitting}
-              className="w-full py-2.5 rounded-xl bg-[#E8654A] text-white text-xs font-semibold hover:bg-[#D75438] flex items-center justify-center gap-1.5 disabled:opacity-50"
+              className="w-full py-2.5 rounded-xl bg-[#E8654A] text-white text-xs font-semibold hover:bg-[#D75438] flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-sm shadow-[#E8654A]/20 transition-colors"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Save to Wishlist</span>}
-            </button>
+            </motion.button>
           </motion.form>
         )}
       </AnimatePresence>
@@ -124,9 +131,12 @@ export default function WishlistView({ items, onAdd, onRemove }: Props) {
           {items.map((item) => (
             <motion.div
               key={item.id}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              className="relative p-4 rounded-2xl bg-white border border-[#EDE5DB] shadow-2xs flex flex-col justify-between hover:border-[#D8C7B5] transition-colors"
+              exit={{ opacity: 0, scale: 0.95 }}
+              whileHover={{ y: -2 }}
+              transition={{ duration: 0.25 }}
+              className="relative p-4 rounded-2xl bg-white border border-[#EDE5DB] shadow-2xs flex flex-col justify-between hover:border-[#D8C7B5] hover:shadow-xs transition-shadow cursor-default"
             >
               <div>
                 <div className="flex items-start justify-between gap-2">
@@ -135,13 +145,15 @@ export default function WishlistView({ items, onAdd, onRemove }: Props) {
                     <span>{item.vibe || 'Curated'}</span>
                   </span>
 
-                  <button
+                  <motion.button
+                    whileHover={{ scale: 1.15 }}
+                    whileTap={{ scale: 0.9 }}
                     onClick={() => onRemove(item.id)}
-                    className="text-[#C4B5A3] hover:text-rose-500 transition-colors p-1"
+                    className="text-[#C4B5A3] hover:text-rose-500 transition-colors p-1 cursor-pointer"
                     aria-label="Remove wishlist item"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  </motion.button>
                 </div>
 
                 <h3 className="mt-2 text-sm font-semibold text-[#2B231D] leading-snug">

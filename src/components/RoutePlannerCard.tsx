@@ -45,17 +45,32 @@ export default function RoutePlannerCard() {
     <motion.section
       id="route-planner"
       initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.15 }}
-      className="mx-4 sm:mx-6 mt-6 rounded-2xl border border-[#DCE8EF] bg-gradient-to-b from-[#F2F8FC] to-[#FFFFFF] p-5 sm:p-6 shadow-xs"
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-20px' }}
+      transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+      className="relative mx-4 sm:mx-6 mt-6 rounded-2xl border border-[#DCE8EF] bg-gradient-to-b from-[#F2F8FC] to-[#FFFFFF] p-5 sm:p-6 shadow-xs overflow-hidden"
     >
+      {/* Subtle moving accent on the card top border */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none overflow-hidden opacity-75">
+        <div 
+          className="w-1/2 h-full bg-gradient-to-r from-transparent via-[#2D7DD2]/50 to-transparent"
+          style={{
+            animation: 'light-sweep 9s ease-in-out infinite'
+          }}
+        />
+      </div>
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-1 rounded-md bg-[#2D7DD2]/10 text-[#2D7DD2]">
+            <motion.span
+              animate={{ rotate: [0, 8, -6, 0] }}
+              transition={{ repeat: Infinity, duration: 7, ease: 'easeInOut' }}
+              className="p-1 rounded-md bg-[#2D7DD2]/10 text-[#2D7DD2] inline-flex items-center justify-center"
+            >
               <Navigation className="w-3.5 h-3.5" />
-            </span>
+            </motion.span>
             <p className="text-[10px] font-mono tracking-[1.4px] text-[#648499] uppercase">
               AI Route Curator
             </p>
@@ -65,7 +80,14 @@ export default function RoutePlannerCard() {
           </h2>
         </div>
         <span className="flex items-center gap-1 rounded-full bg-[#E8F5D8] px-2.5 py-1 text-[10px] font-mono text-[#4D7E26] font-medium border border-[#D5EAC1]">
-          <Sparkles className="w-3 h-3 text-[#E8654A]" /> AI READY
+          <motion.span
+            animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
+            transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}
+            className="inline-flex"
+          >
+            <Sparkles className="w-3 h-3 text-[#E8654A]" />
+          </motion.span>
+          <span>AI READY</span>
         </span>
       </div>
 
@@ -73,16 +95,23 @@ export default function RoutePlannerCard() {
         Describe your dream itinerary and let the engine draft waypoints, mileage, and driving legs.
       </p>
 
-      {/* Preset prompt pills */}
+      {/* Preset prompt pills with smooth hover and selection feedback */}
       <div className="mt-3 flex flex-wrap gap-1.5">
         {PRESET_ROUTES.map((preset, i) => (
-          <button
+          <motion.button
             key={i}
+            whileHover={{ scale: 1.03, y: -1 }}
+            whileTap={{ scale: 0.96, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
             onClick={() => planRoute(preset)}
-            className="text-[10px] font-sans px-2.5 py-1 rounded-full bg-[#E5EEF4] text-[#416277] hover:bg-[#D5E5F0] transition-colors text-left"
+            className={`text-[10px] font-sans px-2.5 py-1 rounded-full text-left transition-all cursor-pointer ${
+              prompt === preset
+                ? 'bg-[#2D7DD2] text-white shadow-2xs font-medium'
+                : 'bg-[#E5EEF4] text-[#416277] hover:bg-[#D5E5F0]'
+            }`}
           >
             {preset}
-          </button>
+          </motion.button>
         ))}
       </div>
 
@@ -95,10 +124,13 @@ export default function RoutePlannerCard() {
           placeholder="e.g. Ooty to Kodaikanal via scenic mist passes"
           className="flex-1 min-w-0 px-3.5 py-2.5 text-xs rounded-xl border border-[#CFDFEB] bg-white text-[#233544] placeholder:text-[#9FB7C6] outline-none focus:border-[#2D7DD2] focus:ring-2 focus:ring-[#2D7DD2]/10 transition-all shadow-2xs"
         />
-        <button
+        <motion.button
+          whileHover={{ scale: 1.02, y: -1 }}
+          whileTap={{ scale: 0.96, y: 0 }}
+          transition={{ duration: 0.18 }}
           onClick={() => planRoute()}
           disabled={loading}
-          className="flex-shrink-0 px-4 py-2.5 rounded-xl bg-[#2D7DD2] hover:bg-[#1A5FA8] text-white text-xs font-semibold active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm"
+          className="flex-shrink-0 px-4 py-2.5 rounded-xl bg-[#2D7DD2] hover:bg-[#1A5FA8] text-white text-xs font-semibold transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-sm cursor-pointer"
           aria-label="Compute route"
         >
           {loading ? (
@@ -109,7 +141,7 @@ export default function RoutePlannerCard() {
               <Send className="w-3.5 h-3.5" />
             </>
           )}
-        </button>
+        </motion.button>
       </div>
 
       {/* Route Result & Interactive Preview */}
@@ -166,7 +198,11 @@ export default function RoutePlannerCard() {
                   {/* Pins */}
                   <div className="absolute w-2.5 h-2.5 rounded-full bg-[#2D7DD2] border-2 border-white left-3.5 top-7 shadow-xs" />
                   <div className="absolute w-2.5 h-2.5 rounded-full bg-[#8BC34A] border-2 border-white left-10 top-4 shadow-xs" />
-                  <div className="absolute w-2.5 h-2.5 rounded-full bg-[#E8654A] border-2 border-white right-3 bottom-3 shadow-xs" />
+                  <motion.div
+                    animate={{ scale: [1, 1.25, 1] }}
+                    transition={{ repeat: Infinity, duration: 3, ease: 'easeInOut' }}
+                    className="absolute w-2.5 h-2.5 rounded-full bg-[#E8654A] border-2 border-white right-3 bottom-3 shadow-xs"
+                  />
                 </div>
 
                 <div>
@@ -183,15 +219,18 @@ export default function RoutePlannerCard() {
               </div>
 
               {/* Action: Open in Google Maps */}
-              <a
+              <motion.a
+                whileHover={{ scale: 1.02, y: -1 }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: 0.18 }}
                 href={result.mapsUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#2D7DD2]/10 hover:bg-[#2D7DD2]/20 text-[#2D7DD2] text-xs font-semibold transition-colors"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-[#2D7DD2]/10 hover:bg-[#2D7DD2]/20 text-[#2D7DD2] text-xs font-semibold transition-colors shadow-2xs"
               >
                 <span>Navigate in Google Maps</span>
                 <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              </motion.a>
             </div>
 
             {/* Waypoint badges list */}
