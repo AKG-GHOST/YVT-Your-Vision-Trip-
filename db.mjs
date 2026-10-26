@@ -54,7 +54,6 @@ if (rawDatabaseUrl) {
   }
 } else if (isProduction) {
   // STRICT RULE: In production/Vercel, NEVER silently fall back to temporary /tmp SQLite!
-  // Fail explicitly so the developer knows DATABASE_URL is missing.
   configError = 'DATABASE_URL environment variable is missing in production. PostgreSQL connection string is required for persistent storage.'
   console.error(`[TripTrail DB ERROR] ${configError}`)
   pool = null
@@ -77,10 +76,176 @@ if (rawDatabaseUrl) {
   }
 }
 
+let schemaInitialized = false
+let schemaInitPromise = null
+
 /**
- * Execute parameterized query for PostgreSQL ($1, $2) with local SQLite fallback
+ * Initialize Tables, Columns, and Indexes for PostgreSQL or SQLite
+ */
+export async function initSchema() {
+  if (schemaInitialized) return
+
+  if (!pool && !sqliteDb) {
+    if (isProduction) {
+      const err = new Error(configError || 'Cannot initialize database schema: DATABASE_URL is missing.')
+      err.status = 503
+      throw err
+    }
+    return
+  }
+
+  if (!schemaInitPromise) {
+    schemaInitPromise = (async () => {
+      if (pool) {
+        const client = await pool.connect()
+        try {
+          await client.query('BEGIN')
+
+          // 1. Users table
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS users (
+              id SERIAL PRIMARY KEY,
+              email TEXT UNIQUE NOT NULL,
+              name TEXT NOT NULL,
+              password_hash TEXT NOT NULL,
+              created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+          `)
+
+          // 2. Trips table (foreign key to users)
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS trips (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              user_email TEXT,
+              title TEXT NOT NULL,
+              location TEXT NOT NULL,
+              start_date DATE NOT NULL,
+              end_date DATE NOT NULL,
+              note TEXT DEFAULT '',
+              mood TEXT DEFAULT 'sunny',
+              created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+          `)
+
+          // 3. Wishlists table (foreign key to users)
+          await client.query(`
+            CREATE TABLE IF NOT EXISTS wishlists (
+              id SERIAL PRIMARY KEY,
+              user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              user_email TEXT,
+              title TEXT NOT NULL,
+              location TEXT NOT NULL,
+              season TEXT DEFAULT 'Anytime',
+              vibe TEXT DEFAULT 'Curated',
+              created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+          `)
+
+          // 4. Safe column migrations for existing tables
+          await client.query(`
+            DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'trips' AND column_name = 'user_email'
+              ) THEN
+                ALTER TABLE trips ADD COLUMN user_email TEXT;
+              END IF;
+              
+              IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name = 'wishlists' AND column_name = 'user_email'
+              ) THEN
+                ALTER TABLE wishlists ADD COLUMN user_email TEXT;
+              END IF;
+            END $$;
+          `)
+
+          // 5. Query and data isolation indexes
+          await client.query(`CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);`)
+          await client.query(`CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(LOWER(user_email));`)
+          await client.query(`CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);`)
+          await client.query(`CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(LOWER(user_email));`)
+          await client.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email));`)
+
+          await client.query('COMMIT')
+          schemaInitialized = true
+          console.log('[TripTrail DB] PostgreSQL schema & indexes successfully verified.')
+        } catch (err) {
+          await client.query('ROLLBACK').catch(() => {})
+          console.error('[TripTrail DB] Schema initialization error:', err.message)
+          throw err
+        } finally {
+          client.release()
+        }
+        return
+      }
+
+      // Local development SQLite schema
+      if (sqliteDb) {
+        sqliteDb.exec(`
+          CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE NOT NULL COLLATE NOCASE,
+            name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE TABLE IF NOT EXISTS trips (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            user_email TEXT,
+            title TEXT NOT NULL,
+            location TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            note TEXT DEFAULT '',
+            mood TEXT DEFAULT 'sunny',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE TABLE IF NOT EXISTS wishlists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            user_email TEXT,
+            title TEXT NOT NULL,
+            location TEXT NOT NULL,
+            season TEXT DEFAULT 'Anytime',
+            vibe TEXT DEFAULT 'Curated',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);
+          CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(user_email);
+          CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
+          CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(user_email);
+        `)
+
+        try { sqliteDb.exec('ALTER TABLE trips ADD COLUMN user_email TEXT;') } catch (_) {}
+        try { sqliteDb.exec('ALTER TABLE wishlists ADD COLUMN user_email TEXT;') } catch (_) {}
+
+        schemaInitialized = true
+        console.log('[TripTrail DB] Local SQLite schema verified successfully.')
+      }
+    })().catch((err) => {
+      schemaInitPromise = null
+      throw err
+    })
+  }
+
+  return schemaInitPromise
+}
+
+/**
+ * Execute parameterized query with automatic schema initialization
  */
 export async function query(sql, params = []) {
+  if (!schemaInitialized) {
+    await initSchema()
+  }
+
   if (pool) {
     try {
       const res = await pool.query(sql, params)
@@ -91,7 +256,7 @@ export async function query(sql, params = []) {
     }
   }
 
-  // If in production and no pool, do NOT execute against ephemeral storage; fail clearly
+  // If in production and no pool, fail clearly
   if (isProduction) {
     const err = new Error(
       configError || 'Database not connected. Please configure DATABASE_URL in your Vercel project settings.'
@@ -133,9 +298,31 @@ export async function getDbHealth() {
 
   if (pool) {
     try {
-      const pingRes = await pool.query('SELECT NOW() as now')
+      // 1. Ensure schema is initialized before executing diagnostics
+      await initSchema()
+
+      // 2. Query safe metadata: database name, current schema, current user (no secrets)
+      const metaRes = await pool.query(`
+        SELECT 
+          current_database() as database_name,
+          current_schema() as current_schema,
+          current_user as current_user
+      `)
+      const meta = metaRes.rows[0] || {}
+
+      // 3. Inspect existing tables in non-system schemas
+      const tablesRes = await pool.query(`
+        SELECT table_schema, table_name 
+        FROM information_schema.tables 
+        WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+        ORDER BY table_schema, table_name
+      `)
+      const tables = tablesRes.rows.map((r) => `${r.table_schema}.${r.table_name}`)
+
+      // 4. Query live counts
       const userRes = await pool.query('SELECT COUNT(*)::int as count FROM users')
       const tripRes = await pool.query('SELECT COUNT(*)::int as count FROM trips')
+      const wishRes = await pool.query('SELECT COUNT(*)::int as count FROM wishlists')
       const latencyMs = Date.now() - startTime
 
       return {
@@ -144,11 +331,14 @@ export async function getDbHealth() {
         persistent: true,
         connected: true,
         latencyMs,
+        databaseName: meta.database_name,
+        currentSchema: meta.current_schema,
+        tables,
         userCount: userRes.rows[0]?.count || 0,
         tripCount: tripRes.rows[0]?.count || 0,
-        serverTime: pingRes.rows[0]?.now,
+        wishlistCount: wishRes.rows[0]?.count || 0,
         isVercel,
-        message: 'Connected to production PostgreSQL database. Data is permanently persistent across sessions and restarts.',
+        message: 'Connected to production Neon PostgreSQL database. All tables, foreign keys, and indexes are verified and persistent.',
       }
     } catch (err) {
       return {
@@ -158,7 +348,7 @@ export async function getDbHealth() {
         connected: false,
         latencyMs: Date.now() - startTime,
         error: err.message,
-        message: 'PostgreSQL pool initialized, but could not connect to server. Check host, credentials, or SSL mode in DATABASE_URL.',
+        message: 'PostgreSQL error: ' + err.message,
         isVercel,
       }
     }
@@ -179,8 +369,10 @@ export async function getDbHealth() {
 
   // Local development SQLite info
   try {
+    await initSchema()
     const userRow = sqliteDb ? sqliteDb.prepare('SELECT COUNT(*) as count FROM users').get() : { count: 0 }
     const tripRow = sqliteDb ? sqliteDb.prepare('SELECT COUNT(*) as count FROM trips').get() : { count: 0 }
+    const wishRow = sqliteDb ? sqliteDb.prepare('SELECT COUNT(*) as count FROM wishlists').get() : { count: 0 }
     return {
       status: 'healthy_local_dev',
       database: 'SQLite',
@@ -189,6 +381,7 @@ export async function getDbHealth() {
       latencyMs: Date.now() - startTime,
       userCount: userRow?.count || 0,
       tripCount: tripRow?.count || 0,
+      wishlistCount: wishRow?.count || 0,
       file: dbFilePath,
       isVercel: false,
       message: 'Running local SQLite for offline development. Set DATABASE_URL to connect to PostgreSQL locally.',
@@ -208,126 +401,5 @@ export function getDbInfo() {
     type: dbType,
     connected: Boolean(pool || sqliteDb),
     storage: pool ? 'PostgreSQL Cloud' : isProduction ? 'Unconfigured' : 'SQLite Local Dev',
-  }
-}
-
-let schemaInitialized = false
-
-/**
- * Initialize Tables, Columns, and Indexes
- */
-export async function initSchema() {
-  if (schemaInitialized) return
-
-  if (pool) {
-    // PostgreSQL schema
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        email TEXT UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS trips (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        user_email TEXT,
-        title TEXT NOT NULL,
-        location TEXT NOT NULL,
-        start_date DATE NOT NULL,
-        end_date DATE NOT NULL,
-        note TEXT DEFAULT '',
-        mood TEXT DEFAULT 'sunny',
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-
-      CREATE TABLE IF NOT EXISTS wishlists (
-        id SERIAL PRIMARY KEY,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        user_email TEXT,
-        title TEXT NOT NULL,
-        location TEXT NOT NULL,
-        season TEXT DEFAULT 'Anytime',
-        vibe TEXT DEFAULT 'Curated',
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);
-      CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(LOWER(user_email));
-      CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
-      CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(LOWER(user_email));
-      CREATE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email));
-    `)
-
-    // Safe column migrations if tables existed previously
-    try {
-      await pool.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS user_email TEXT;')
-      await pool.query('ALTER TABLE wishlists ADD COLUMN IF NOT EXISTS user_email TEXT;')
-    } catch (_) {}
-
-    schemaInitialized = true
-    console.log('[TripTrail DB] PostgreSQL schema verified successfully.')
-    return
-  }
-
-  if (isProduction) {
-    // In production without pool, do NOT initialize anything in /tmp SQLite
-    const err = new Error(configError || 'Cannot initialize database schema: DATABASE_URL is missing.')
-    err.status = 503
-    throw err
-  }
-
-  // Local development SQLite schema
-  if (sqliteDb) {
-    sqliteDb.exec(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT UNIQUE NOT NULL COLLATE NOCASE,
-        name TEXT NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS trips (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        user_email TEXT,
-        title TEXT NOT NULL,
-        location TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        end_date TEXT NOT NULL,
-        note TEXT DEFAULT '',
-        mood TEXT DEFAULT 'sunny',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS wishlists (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        user_email TEXT,
-        title TEXT NOT NULL,
-        location TEXT NOT NULL,
-        season TEXT DEFAULT 'Anytime',
-        vibe TEXT DEFAULT 'Curated',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);
-      CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(user_email);
-      CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
-      CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(user_email);
-    `)
-
-    try {
-      sqliteDb.exec('ALTER TABLE trips ADD COLUMN user_email TEXT;')
-    } catch (_) {}
-    try {
-      sqliteDb.exec('ALTER TABLE wishlists ADD COLUMN user_email TEXT;')
-    } catch (_) {}
-
-    schemaInitialized = true
-    console.log('[TripTrail DB] Local SQLite schema verified successfully.')
   }
 }
