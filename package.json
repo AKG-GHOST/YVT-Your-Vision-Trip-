@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "start": "node server.mjs",
-    "server": "node server.mjs"
+    "server": "node server.mjs",
+    "migrate:to-pg": "node scripts/migrate-sqlite-to-pg.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

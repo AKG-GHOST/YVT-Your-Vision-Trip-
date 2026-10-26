@@ -7,21 +7,23 @@ import Database from 'better-sqlite3'
 const { Pool, types } = pg
 const root = path.dirname(fileURLToPath(import.meta.url))
 
-// Ensure PostgreSQL DATE (type 1082) is returned as 'YYYY-MM-DD' string to match SQLite format
+// Ensure PostgreSQL DATE (type 1082) is returned as 'YYYY-MM-DD' string to match application models
 types.setTypeParser(1082, (val) => val)
 
-let pool = null
-let sqliteDb = null
-let dbType = 'sqlite'
-let dbFilePath = ''
-let poolInitError = null
-
+const isVercel = Boolean(process.env.VERCEL)
+const isProduction = process.env.NODE_ENV === 'production' || isVercel
 let rawDatabaseUrl = (process.env.DATABASE_URL || '').trim()
 
-// Normalize postgres:// to postgresql:// if needed
+// Normalize postgres:// to postgresql://
 if (rawDatabaseUrl.startsWith('postgres://')) {
   rawDatabaseUrl = rawDatabaseUrl.replace('postgres://', 'postgresql://')
 }
+
+let pool = null
+let sqliteDb = null
+let dbType = 'postgres' // Default expected target is PostgreSQL
+let dbFilePath = ''
+let configError = null
 
 if (rawDatabaseUrl) {
   try {
@@ -34,42 +36,49 @@ if (rawDatabaseUrl) {
     pool = new Pool({
       connectionString: rawDatabaseUrl,
       ssl: useSsl ? { rejectUnauthorized: false } : undefined,
-      max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 10,
-      idleTimeoutMillis: 20000,
-      connectionTimeoutMillis: 10000,
+      max: process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : 5,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 5000,
     })
 
     pool.on('error', (err) => {
-      console.error('[TripTrail DB Pool Error]', err.message)
+      console.error('[PostgreSQL Pool Client Error]', err.message)
     })
 
     dbType = 'postgres'
-    console.log(`[TripTrail DB] Configured for PostgreSQL (SSL: ${useSsl})`)
+    console.log(`[TripTrail DB] Initialized PostgreSQL connection pool (SSL: ${useSsl})`)
   } catch (err) {
-    console.error('[TripTrail DB] Failed to create PostgreSQL pool:', err.message)
+    configError = `Failed to initialize PostgreSQL pool: ${err.message}`
+    console.error(`[TripTrail DB] ${configError}`)
     pool = null
-    poolInitError = err.message
+  }
+} else if (isProduction) {
+  // STRICT RULE: In production/Vercel, NEVER silently fall back to temporary /tmp SQLite!
+  // Fail explicitly so the developer knows DATABASE_URL is missing.
+  configError = 'DATABASE_URL environment variable is missing in production. PostgreSQL connection string is required for persistent storage.'
+  console.error(`[TripTrail DB ERROR] ${configError}`)
+  pool = null
+} else {
+  // Local offline development fallback only (when not in production/Vercel)
+  try {
+    const dbDir = path.join(root, 'data')
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true })
+    }
+    dbFilePath = path.join(dbDir, 'triptrail.db')
+    sqliteDb = new Database(dbFilePath)
+    sqliteDb.pragma('journal_mode = WAL')
+    sqliteDb.pragma('foreign_keys = ON')
     dbType = 'sqlite'
+    console.log(`[TripTrail DB] Local development mode: Using SQLite at ${dbFilePath}`)
+  } catch (err) {
+    configError = `Failed to initialize local SQLite database: ${err.message}`
+    console.error(`[TripTrail DB] ${configError}`)
   }
-}
-
-// Fallback to SQLite (local file or serverless /tmp)
-if (!pool) {
-  const isVercel = Boolean(process.env.VERCEL)
-  const dbDir = isVercel ? '/tmp' : path.join(root, 'data')
-  if (!fs.existsSync(dbDir)) {
-    fs.mkdirSync(dbDir, { recursive: true })
-  }
-  dbFilePath = path.join(dbDir, 'triptrail.db')
-  sqliteDb = new Database(dbFilePath)
-  sqliteDb.pragma('journal_mode = WAL')
-  sqliteDb.pragma('foreign_keys = ON')
-  dbType = 'sqlite'
-  console.log(`[TripTrail DB] Using SQLite database at: ${dbFilePath} (Persistent: ${!isVercel})`)
 }
 
 /**
- * Execute parameterized query for both PostgreSQL ($1, $2) and SQLite (?, ?)
+ * Execute parameterized query for PostgreSQL ($1, $2) with local SQLite fallback
  */
 export async function query(sql, params = []) {
   if (pool) {
@@ -82,30 +91,44 @@ export async function query(sql, params = []) {
     }
   }
 
-  // SQLite: convert $1, $2... to ?
-  const sqliteSql = sql.replace(/\$(\d+)/g, '?')
-  const trimmed = sqliteSql.trim().toUpperCase()
-
-  if (trimmed.startsWith('SELECT')) {
-    const rows = sqliteDb.prepare(sqliteSql).all(...params)
-    return { rows, rowCount: rows.length }
+  // If in production and no pool, do NOT execute against ephemeral storage; fail clearly
+  if (isProduction) {
+    const err = new Error(
+      configError || 'Database not connected. Please configure DATABASE_URL in your Vercel project settings.'
+    )
+    err.status = 503
+    err.code = 'DATABASE_UNCONFIGURED'
+    throw err
   }
 
-  if (sqliteSql.toUpperCase().includes('RETURNING')) {
-    const rows = sqliteDb.prepare(sqliteSql).all(...params)
-    return { rows, rowCount: rows.length }
+  // Local development SQLite execution
+  if (sqliteDb) {
+    const sqliteSql = sql.replace(/\$(\d+)/g, '?')
+    const trimmed = sqliteSql.trim().toUpperCase()
+
+    if (trimmed.startsWith('SELECT')) {
+      const rows = sqliteDb.prepare(sqliteSql).all(...params)
+      return { rows, rowCount: rows.length }
+    }
+
+    if (sqliteSql.toUpperCase().includes('RETURNING')) {
+      const rows = sqliteDb.prepare(sqliteSql).all(...params)
+      return { rows, rowCount: rows.length }
+    }
+
+    const info = sqliteDb.prepare(sqliteSql).run(...params)
+    return { rows: [], rowCount: info.changes }
   }
 
-  const info = sqliteDb.prepare(sqliteSql).run(...params)
-  return { rows: [], rowCount: info.changes }
+  const err = new Error(configError || 'Database client unavailable.')
+  err.status = 503
+  throw err
 }
 
 /**
- * Health check with live query execution and persistence verification
+ * Live Database Health & Diagnostics
  */
 export async function getDbHealth() {
-  const isVercel = Boolean(process.env.VERCEL)
-  const hasDbUrl = Boolean(rawDatabaseUrl)
   const startTime = Date.now()
 
   if (pool) {
@@ -119,50 +142,63 @@ export async function getDbHealth() {
         status: 'healthy',
         database: 'PostgreSQL',
         persistent: true,
+        connected: true,
         latencyMs,
         userCount: userRes.rows[0]?.count || 0,
         tripCount: tripRes.rows[0]?.count || 0,
         serverTime: pingRes.rows[0]?.now,
         isVercel,
+        message: 'Connected to production PostgreSQL database. Data is permanently persistent across sessions and restarts.',
       }
     } catch (err) {
       return {
         status: 'unreachable',
         database: 'PostgreSQL',
         persistent: true,
+        connected: false,
+        latencyMs: Date.now() - startTime,
         error: err.message,
-        message: 'PostgreSQL connection failed. Verify DATABASE_URL credentials and SSL in Vercel.',
+        message: 'PostgreSQL pool initialized, but could not connect to server. Check host, credentials, or SSL mode in DATABASE_URL.',
         isVercel,
       }
     }
   }
 
-  // SQLite mode
+  if (isProduction) {
+    return {
+      status: 'unconfigured',
+      database: 'PostgreSQL (Required)',
+      persistent: false,
+      connected: false,
+      isVercel,
+      error: configError || 'DATABASE_URL is missing.',
+      message: 'CRITICAL: DATABASE_URL environment variable is not configured in Vercel. Database operations are halted to protect data persistence.',
+      actionRequired: 'Add DATABASE_URL in Vercel Project Settings -> Environment Variables and redeploy.',
+    }
+  }
+
+  // Local development SQLite info
   try {
     const userRow = sqliteDb ? sqliteDb.prepare('SELECT COUNT(*) as count FROM users').get() : { count: 0 }
     const tripRow = sqliteDb ? sqliteDb.prepare('SELECT COUNT(*) as count FROM trips').get() : { count: 0 }
-    const latencyMs = Date.now() - startTime
-
     return {
-      status: isVercel ? 'warning_ephemeral' : 'healthy_local',
+      status: 'healthy_local_dev',
       database: 'SQLite',
-      persistent: !isVercel,
-      latencyMs,
+      persistent: true,
+      connected: true,
+      latencyMs: Date.now() - startTime,
       userCount: userRow?.count || 0,
       tripCount: tripRow?.count || 0,
-      hasDatabaseUrlEnv: hasDbUrl,
-      poolInitError: poolInitError || undefined,
-      isVercel,
-      warning: isVercel
-        ? 'Running on ephemeral /tmp SQLite inside Vercel Serverless Function. Data will reset on cold starts. Add DATABASE_URL in Vercel project settings to persist permanently.'
-        : undefined,
+      file: dbFilePath,
+      isVercel: false,
+      message: 'Running local SQLite for offline development. Set DATABASE_URL to connect to PostgreSQL locally.',
     }
   } catch (err) {
     return {
       status: 'error',
       database: 'SQLite',
+      connected: false,
       error: err.message,
-      isVercel,
     }
   }
 }
@@ -170,18 +206,19 @@ export async function getDbHealth() {
 export function getDbInfo() {
   return {
     type: dbType,
-    connected: true,
-    storage: dbType === 'sqlite' ? 'SQLite (Local)' : 'PostgreSQL Cloud',
+    connected: Boolean(pool || sqliteDb),
+    storage: pool ? 'PostgreSQL Cloud' : isProduction ? 'Unconfigured' : 'SQLite Local Dev',
   }
 }
 
 let schemaInitialized = false
 
 /**
- * Initialize Tables
+ * Initialize Tables, Columns, and Indexes
  */
 export async function initSchema() {
   if (schemaInitialized) return
+
   if (pool) {
     // PostgreSQL schema
     await pool.query(`
@@ -218,9 +255,9 @@ export async function initSchema() {
       );
 
       CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);
-      CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(user_email);
+      CREATE INDEX IF NOT EXISTS idx_trips_email ON trips(LOWER(user_email));
       CREATE INDEX IF NOT EXISTS idx_wishlists_user ON wishlists(user_id);
-      CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(user_email);
+      CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(LOWER(user_email));
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(LOWER(email));
     `)
 
@@ -229,8 +266,21 @@ export async function initSchema() {
       await pool.query('ALTER TABLE trips ADD COLUMN IF NOT EXISTS user_email TEXT;')
       await pool.query('ALTER TABLE wishlists ADD COLUMN IF NOT EXISTS user_email TEXT;')
     } catch (_) {}
-  } else {
-    // SQLite schema
+
+    schemaInitialized = true
+    console.log('[TripTrail DB] PostgreSQL schema verified successfully.')
+    return
+  }
+
+  if (isProduction) {
+    // In production without pool, do NOT initialize anything in /tmp SQLite
+    const err = new Error(configError || 'Cannot initialize database schema: DATABASE_URL is missing.')
+    err.status = 503
+    throw err
+  }
+
+  // Local development SQLite schema
+  if (sqliteDb) {
     sqliteDb.exec(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -270,14 +320,14 @@ export async function initSchema() {
       CREATE INDEX IF NOT EXISTS idx_wishlists_email ON wishlists(user_email);
     `)
 
-    // Safe column migrations if tables existed previously in SQLite
     try {
       sqliteDb.exec('ALTER TABLE trips ADD COLUMN user_email TEXT;')
     } catch (_) {}
     try {
       sqliteDb.exec('ALTER TABLE wishlists ADD COLUMN user_email TEXT;')
     } catch (_) {}
+
+    schemaInitialized = true
+    console.log('[TripTrail DB] Local SQLite schema verified successfully.')
   }
-  schemaInitialized = true
-  console.log('[TripTrail DB] Schema initialized successfully.')
 }

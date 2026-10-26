@@ -56,8 +56,13 @@ function authRateLimiter(maxAttempts = 20, windowMs = 15 * 60 * 1000) {
   }
 }
 
-// Ensure schema is initialized before handling requests
-app.use(async (_req, _res, next) => {
+// Ensure schema is initialized before handling data requests
+app.use(async (req, _res, next) => {
+  // Allow health and status endpoints to respond even if DB is not yet configured
+  if (req.path === '/api/health' || req.path === '/api/status' || req.path === '/api/db/diagnostics') {
+    return next()
+  }
+
   try {
     await initSchema()
     next()
@@ -464,7 +469,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/status', async (_req, res) => {
   const dbHealth = await getDbHealth()
   res.json({
-    connected: dbHealth.status === 'healthy' || dbHealth.status === 'healthy_local' || dbHealth.status === 'warning_ephemeral',
+    connected: Boolean(dbHealth.connected),
     db: dbHealth,
     serverTime: new Date().toISOString(),
   })
